@@ -1106,6 +1106,49 @@
       return resultReferencePoint(reference, "hero", detail);
     }
 
+    function triggerCommanderEmphasis(detail, commanderId) {
+      var presentations = {
+        caocao: {
+          label: "패왕의 휴식",
+          color: HEAL_CYAN,
+          secondaryColor: HEAL_WHITE
+        },
+        liubei: {
+          label: "인덕의 반사",
+          color: REFLECT_GOLD,
+          secondaryColor: PALE_GOLD
+        },
+        sunquan: {
+          label: "수공",
+          color: WATER_TEAL,
+          secondaryColor: WATER_BLUE
+        },
+        nomad: {
+          label: "족쇄 명령",
+          color: ROPE_TAN,
+          secondaryColor: SEAL_IVORY
+        }
+      };
+      var presentation = presentations[commanderId];
+      if (!presentation) return;
+      var side = detail.actor || detail.side || "player";
+      var at = commanderHeroAnchor(detail, side);
+      addJob("commander-emphasis", commanderId === "liubei" ? 0.72 : 0.9, {
+        x: at.x,
+        y: at.y,
+        color: presentation.color,
+        secondaryColor: presentation.secondaryColor,
+        label: presentation.label,
+        commanderId: commanderId,
+        signature: commanderId + ":anime-power-cut",
+        anchorRole: "hero",
+        anchorSide: side,
+        layer: LAYER_OVERLAY,
+        cueAt: 0.08
+      });
+      shake(commanderId === "sunquan" ? 2.8 : 2.35);
+    }
+
     function triggerCaoCaoPower(detail) {
       var side = detail.actor || detail.side || "player";
       var at = commanderHeroAnchor(detail, side);
@@ -1130,6 +1173,7 @@
       var defendingSide = detail.actor || detail.side || "player";
       var attacker = detail.attacker || detail.target || {};
       var from = commanderHeroAnchor(detail, defendingSide);
+      triggerCommanderEmphasis(detail, "liubei");
       var fallbackRole = attacker.zone === "hero" ? "hero" : "minion";
       var to = resultReferencePoint(attacker, fallbackRole, detail);
       var dx = to.x - from.x;
@@ -1257,6 +1301,7 @@
 
     function triggerCommanderPower(detail) {
       var commanderId = commanderIdFor(detail);
+      triggerCommanderEmphasis(detail, commanderId);
       if (commanderId === "caocao") {
         triggerCaoCaoPower(detail);
       } else if (commanderId === "sunquan") {
@@ -1394,7 +1439,23 @@
 
     function fireJobCue(job) {
       var at = { x: job.x, y: job.y };
-      if (job.kind === "commander-heal") {
+      if (job.kind === "commander-emphasis") {
+        burst(at, 18, {
+          color: job.color || GOLD,
+          minSpeed: 48, maxSpeed: 178,
+          minLife: 0.24, maxLife: 0.58,
+          minSize: 2, maxSize: 6,
+          kind: "spark", drag: 1.6,
+          stretch: 1.8
+        });
+        burst(at, 9, {
+          color: job.secondaryColor || PALE_GOLD,
+          minSpeed: 22, maxSpeed: 96,
+          minLife: 0.2, maxLife: 0.48,
+          minSize: 2, maxSize: 5,
+          kind: "glyph", drag: 2.1
+        });
+      } else if (job.kind === "commander-heal") {
         directedBurst(at, 0, -1, 16, {
           color: HEAL_CYAN,
           minSpeed: 42, maxSpeed: 132,
@@ -2694,6 +2755,83 @@
       ctx.restore();
     }
 
+    function drawCommanderEmphasis(ctx, job) {
+      var d = dimensions();
+      var t = clamp(job.age / job.duration, 0, 1);
+      var reveal = easeOutBack(phase(t, 0, 0.2));
+      var settle = easeOutCubic(phase(t, 0.14, 0.58));
+      var fade = 1 - easeInCubic(phase(t, 0.62, 1));
+      var alpha = clamp(reveal, 0, 1) * fade;
+      var flash = 1 - easeOutCubic(phase(t, 0, 0.14));
+      var radius = lerp(28, 94, settle);
+
+      ctx.save();
+      ctx.fillStyle = rgba(INK, alpha * 0.24);
+      ctx.fillRect(0, 0, d.width, d.height);
+      if (flash > 0) {
+        ctx.fillStyle = rgba(job.secondaryColor || PALE_GOLD, flash * 0.16);
+        ctx.fillRect(0, 0, d.width, d.height);
+      }
+
+      ctx.translate(job.x, job.y);
+      ctx.globalCompositeOperation = "lighter";
+      var aura = ctx.createRadialGradient(0, 0, 2, 0, 0, radius * 1.75);
+      aura.addColorStop(0, rgba(job.secondaryColor || PALE_GOLD, alpha * 0.3));
+      aura.addColorStop(0.42, rgba(job.color || GOLD, alpha * 0.2));
+      aura.addColorStop(1, rgba(job.color || GOLD, 0));
+      ctx.fillStyle = aura;
+      ctx.beginPath();
+      ctx.arc(0, 0, radius * 1.75, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.rotate((job.commanderId === "sunquan" ? -1 : 1) * (0.08 + t * 0.12));
+      ctx.strokeStyle = rgba(job.color || GOLD, alpha * 0.9);
+      ctx.lineWidth = 3.2;
+      ctx.beginPath();
+      ctx.arc(0, 0, radius, -Math.PI * 0.9, Math.PI * 0.72);
+      ctx.stroke();
+      ctx.strokeStyle = rgba(job.secondaryColor || PALE_GOLD, alpha * 0.76);
+      ctx.lineWidth = 1.2;
+      ctx.beginPath();
+      ctx.arc(0, 0, radius * 0.72, -Math.PI * 0.66, Math.PI * 0.94);
+      ctx.stroke();
+
+      // Option 3 action grammar: diagonal cel-animation cuts radiate from the
+      // commander's portrait and retract before they can obscure the board.
+      ctx.lineCap = "round";
+      for (var ray = 0; ray < 16; ray += 1) {
+        var angle = ray * Math.PI / 8 + (ray % 2 ? -0.08 : 0.06);
+        var inner = radius * (0.86 + (ray % 3) * 0.08);
+        var outer = inner + lerp(76, 158, settle) * (ray % 2 ? 0.68 : 1);
+        ctx.strokeStyle = ray % 3 === 0
+          ? rgba(job.secondaryColor || PALE_GOLD, alpha * 0.72)
+          : rgba(job.color || GOLD, alpha * 0.42);
+        ctx.lineWidth = ray % 3 === 0 ? 3.4 : 1.7;
+        ctx.beginPath();
+        ctx.moveTo(Math.cos(angle) * inner, Math.sin(angle) * inner);
+        ctx.lineTo(Math.cos(angle) * outer, Math.sin(angle) * outer);
+        ctx.stroke();
+      }
+      ctx.restore();
+
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.font = "900 21px 'Malgun Gothic',sans-serif";
+      var labelWidth = Math.max(154, ctx.measureText(job.label || "").width + 48);
+      var labelY = Math.max(48, job.y - 118 - settle * 18);
+      ctx.fillStyle = "rgba(8,13,22,.92)";
+      roundedRect(ctx, job.x - labelWidth * 0.5, labelY - 20, labelWidth, 40, 12);
+      ctx.fill();
+      ctx.strokeStyle = rgba(job.color || GOLD, 0.92);
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      ctx.fillStyle = job.secondaryColor || PALE_GOLD;
+      ctx.fillText(job.label || "", job.x, labelY + 1);
+      ctx.restore();
+    }
+
     function drawCommanderHeal(ctx, job) {
       var t = clamp(job.age / job.duration, 0, 1);
       var appear = easeOutBack(phase(t, 0, 0.22));
@@ -3370,6 +3508,7 @@
         case "target": drawTarget(ctx, job); break;
         case "rune": drawRune(ctx, job); break;
         case "effect": drawEffect(ctx, job); break;
+        case "commander-emphasis": drawCommanderEmphasis(ctx, job); break;
         case "commander-heal": drawCommanderHeal(ctx, job); break;
         case "commander-reflect": drawCommanderReflect(ctx, job); break;
         case "commander-flood": drawCommanderFlood(ctx, job); break;

@@ -438,6 +438,33 @@
     return String(raw || "").replace(/죽음\s*:/g, "유언:");
   }
 
+  function cardTacticalLabel(card) {
+    const tactics = getCardValue(card, "tactics", {}) || {};
+    const identity = String(
+      tactics.identity || getCardValue(card, "tacticalIdentity", ""),
+    ).trim();
+    if (identity) return identity.split(/\s+/).slice(0, 3).join(" ");
+
+    const text = displayCardText(card, false);
+    const keywords = (getCardValue(card, "keywords", []) || [])
+      .map((keyword) => (
+        typeof keyword === "string"
+          ? keyword
+          : String(keyword && (keyword.name || keyword.label || keyword.keyword) || "")
+      ));
+    if (/돌진/.test(text) || keywords.includes("돌진")) return "즉시 공격";
+    if (/모든 적|전체 적|전역/.test(text)) return "광역 피해";
+    if (/카드.*뽑|뽑습니다/.test(text)) return "전술 보급";
+    if (/소환/.test(text)) return "병력 소환";
+    if (/회복/.test(text)) return "회복 지원";
+    if (/보호|도발|방패/.test(text) || keywords.some((keyword) => /보호|도발|방패/.test(keyword))) {
+      return "전열 수호";
+    }
+    if (/피해/.test(text)) return "직접 피해";
+    if (/공격력|강화/.test(text)) return "전열 강화";
+    return keywords[0] ? `${keywords[0]} 장수` : "전장 장수";
+  }
+
   function shieldVisualState(card) {
     if (!card) return "none";
     const keywords = getCardValue(card, "keywords", []) || [];
@@ -5629,9 +5656,9 @@
     ctx.restore();
   }
 
-  const WEBTOON_STYLE_VERSION = "webtoon-v9";
+  const ANIME_CEL_STYLE_VERSION = "anime-cel-v10";
 
-  function paintWebtoonFaceFinish(ctx, cx, cy, radius, art, pose, compact) {
+  function paintAnimeCelFaceFinish(ctx, cx, cy, radius, art, pose, compact) {
     const facing = art.facing || 1;
     const landmarks = faceLandmarks(art);
     const faceArt = faceArt7Profile(art);
@@ -5659,8 +5686,8 @@
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
 
-    // Korean action-webtoon cel shading: broad, deliberately flat planes
-    // replace the former mist of painterly micro-glazes on the focal face.
+    // Bright fantasy-anime cel shading: two broad shadow groups and one clean
+    // highlight keep every face readable at hand-card size.
     ctx.save();
     painterlyFacePath(ctx, cx, cy, radius, art, pose);
     ctx.clip();
@@ -5692,22 +5719,11 @@
     ctx.closePath();
     ctx.fill();
 
-    if (!compact) {
-      ctx.strokeStyle = "rgba(34,24,39,.17)";
-      ctx.lineWidth = Math.max(0.45, radius * 0.018);
-      for (let hatch = 0; hatch < 6; hatch += 1) {
-        const hatchY = cy - radius * 0.18 + hatch * radius * 0.13;
-        ctx.beginPath();
-        ctx.moveTo(cx - facing * radius * 0.82, hatchY);
-        ctx.lineTo(cx - facing * radius * 0.34, hatchY + radius * 0.2);
-        ctx.stroke();
-      }
-    }
     ctx.restore();
 
-    // Variable-width inked cheek contours preserve silhouettes at hand size.
-    ctx.strokeStyle = "rgba(24,19,27,.93)";
-    ctx.lineWidth = Math.max(1.05, radius * (compact ? 0.1 : 0.068));
+    // Clean animation contours replace the rough ink response from v9.
+    ctx.strokeStyle = "rgba(20,25,38,.94)";
+    ctx.lineWidth = Math.max(0.95, radius * (compact ? 0.09 : 0.058));
     ctx.beginPath();
     ctx.moveTo(cx - radius * 0.72, cy - radius * 0.6);
     ctx.bezierCurveTo(
@@ -5729,7 +5745,7 @@
     );
     ctx.stroke();
 
-    const drawWebtoonEye = (eyeX, eyeY, eyeWidth, isNear) => {
+    const drawAnimeEye = (eyeX, eyeY, eyeWidth, isNear) => {
       const open = eyeHeight * (isNear ? 1 : 0.76) * expression.eyeOpen;
       ctx.beginPath();
       ctx.moveTo(eyeX - facing * eyeWidth, eyeY);
@@ -5738,14 +5754,14 @@
       ctx.closePath();
       ctx.fillStyle = "#fff8ea";
       ctx.fill();
-      ctx.strokeStyle = "rgba(22,18,26,.96)";
-      ctx.lineWidth = Math.max(0.9, radius * (compact ? 0.085 : 0.058));
+      ctx.strokeStyle = "rgba(18,25,42,.98)";
+      ctx.lineWidth = Math.max(0.85, radius * (compact ? 0.078 : 0.052));
       ctx.stroke();
 
       const gazeX = facing * radius * faceArt.gazeX * 0.045;
       const gazeY = radius * faceArt.gazeY * 0.05;
       const irisRadius = radius * (isNear ? 0.076 : 0.057);
-      ctx.fillStyle = fierce ? "#302022" : art.feminine ? "#342b49" : "#252a32";
+      ctx.fillStyle = fierce ? "#b34a38" : art.feminine ? "#5567c9" : "#3179b7";
       ellipsePath(ctx, eyeX + gazeX, eyeY + gazeY, irisRadius, irisRadius * 1.08);
       ctx.fill();
       ctx.fillStyle = "#0b0c10";
@@ -5775,11 +5791,11 @@
 
     const nearWidth = radius * 0.27 * faceArt.eyeWidth;
     const farWidth = radius * (0.2 - pose.yaw * 0.06) * faceArt.eyeWidth;
-    drawWebtoonEye(farEyeX, farEyeY, farWidth, false);
-    drawWebtoonEye(nearEyeX, nearEyeY, nearWidth, true);
+    drawAnimeEye(farEyeX, farEyeY, farWidth, false);
+    drawAnimeEye(nearEyeX, nearEyeY, nearWidth, true);
 
-    // Long tapered brows and a single clean nose bridge are the facial
-    // shorthand used by Korean historical-action webtoons.
+    // Tapered brows and a single nose bridge follow animation-production
+    // shorthand instead of the previous textured historical rendering.
     const browSlant = fierce ? radius * 0.13 : gentle ? radius * 0.035 : radius * 0.075;
     ctx.strokeStyle = "rgba(27,20,27,.95)";
     ctx.lineWidth = Math.max(1, radius * (compact ? 0.1 : 0.073));
@@ -5816,7 +5832,7 @@
     ctx.restore();
   }
 
-  function paintWebtoonPanelFinish(ctx, x, y, width, height, seed, art, style, compact) {
+  function paintAnimeActionPanelFinish(ctx, x, y, width, height, seed, art, style, compact) {
     const noise = seededNoise(seed ^ 0x77a9d);
     const facing = art.facing || 1;
     const accent = poseColor(art, style);
@@ -5825,8 +5841,9 @@
     ctx.clip();
     ctx.lineCap = "round";
 
-    // Directional panel cuts frame the character without obscuring the face.
-    const speedLineCount = compact ? 5 : 11;
+    // Option 3 supplies the action grammar: hard diagonal cuts converge around
+    // the clean Option 2 character design without covering the face.
+    const speedLineCount = compact ? 7 : 15;
     for (let line = 0; line < speedLineCount; line += 1) {
       const side = line % 2 ? -facing : facing;
       const edgeX = x + width * (side > 0 ? 1.04 : -0.04);
@@ -5843,21 +5860,21 @@
       ctx.stroke();
     }
 
-    // Sparse halftone clusters keep the panel language visible at detail size
-    // while staying out of the text and stat regions.
-    const dotRadius = Math.max(0.55, width * (compact ? 0.006 : 0.005));
-    ctx.fillStyle = "rgba(10,12,18,.24)";
-    const dotColumns = compact ? 4 : 7;
-    const dotRows = compact ? 3 : 5;
-    for (let column = 0; column < dotColumns; column += 1) {
-      for (let row = 0; row < dotRows; row += 1) {
-        const sideX = facing > 0
-          ? x + width * (0.08 + column * 0.032)
-          : x + width * (0.92 - column * 0.032);
-        const dotY = y + height * (0.09 + row * 0.045);
-        ellipsePath(ctx, sideX, dotY, dotRadius, dotRadius);
-        ctx.fill();
-      }
+    // Flat cyan magic rings add the bright academy-fantasy tone of Option 2.
+    const magicX = x + width * (facing > 0 ? 0.18 : 0.82);
+    const magicY = y + height * 0.33;
+    ctx.strokeStyle = colorWithAlpha("#72dcff", compact ? 0.28 : 0.34);
+    for (let ring = 0; ring < (compact ? 2 : 3); ring += 1) {
+      ctx.lineWidth = Math.max(0.55, width * (0.004 + ring * 0.0015));
+      ctx.beginPath();
+      ctx.arc(
+        magicX,
+        magicY,
+        width * (0.13 + ring * 0.075),
+        -Math.PI * 0.78,
+        Math.PI * 0.58,
+      );
+      ctx.stroke();
     }
 
     ctx.strokeStyle = colorWithAlpha(style.secondary, compact ? 0.5 : 0.42);
@@ -5875,7 +5892,7 @@
     roundedRect(ctx, x, y, width, height, Math.max(4, width * 0.05));
     ctx.clip();
     ctx.lineCap = "round";
-    const strokes = compact ? 5 : 14;
+    const strokes = compact ? 2 : 6;
     for (let index = 0; index < strokes; index += 1) {
       const sx = x + noise() * width;
       const sy = y + noise() * height;
@@ -5960,7 +5977,7 @@
     return [
       getCardValue(card, "id", getCardValue(card, "name", "unknown")),
       art.archetype,
-      WEBTOON_STYLE_VERSION,
+      ANIME_CEL_STYLE_VERSION,
       profile.bucket,
       compact ? "COMPACT" : "FULL",
       style.primary,
@@ -6455,7 +6472,7 @@
         glow: portraitSaturationColor(style.glow, 1.42, 1.04),
       }
       : style;
-    const seed = hashString(`${getCardValue(card, "id", "")}|${getCardValue(card, "name", "")}|${WEBTOON_STYLE_VERSION}`);
+    const seed = hashString(`${getCardValue(card, "id", "")}|${getCardValue(card, "name", "")}|${ANIME_CEL_STYLE_VERSION}`);
     const facing = art.facing || 1;
     const cx = x + width * (pose.headX + action.headDX);
     const headY = y + height * (pose.headY + action.headDY);
@@ -6562,13 +6579,10 @@
 
     paintFaceValues(ctx, cx, headY, radius, art, focalPose, compact);
     paintFacePlanes(ctx, cx, headY, radius, art, focalPose, compact);
-    paintFacialDepthV8(ctx, cx, headY, radius, art, focalPose, compact);
-    paintAnatomicalBrushworkV7(ctx, cx, headY, radius, art, focalPose, compact);
-    paintSkinMicrostructure(ctx, cx, headY, radius, art, focalPose, compact);
     paintFacialFeatures(ctx, cx, headY, radius, art, focalPose, compact);
     paintIndividualFaceMarksV7(ctx, cx, headY, radius, art, focalPose, compact);
     paintHairEdgeResponseV7(ctx, cx, headY, radius, art, focalPose, compact);
-    paintWebtoonFaceFinish(ctx, cx, headY, radius, art, focalPose, compact);
+    paintAnimeCelFaceFinish(ctx, cx, headY, radius, art, focalPose, compact);
     if (art.eyepatch) {
       ctx.save();
       ctx.strokeStyle = "#0c1012";
@@ -6622,7 +6636,7 @@
       });
     }
     paintSurfaceGlaze(ctx, x, y, width, height, seed, art, backgroundStyle, compact);
-    paintWebtoonPanelFinish(
+    paintAnimeActionPanelFinish(
       ctx,
       x,
       y,
@@ -7064,7 +7078,9 @@
     const handCenterX = safeCount <= 2 ? 490 : 683;
     const x = handCenterX + centered * spacing;
     const normalized = safeCount <= 1 ? 0 : centered / Math.max(1, (safeCount - 1) / 2);
-    const y = 660 + Math.abs(normalized) * 16;
+    // Lower the resting fan so the commander reads as the foreground anchor.
+    // Hover/selection still lifts cards for inspection without hiding the hero.
+    const y = 677 + Math.abs(normalized) * 6;
     const angle = normalized * 0.115;
     return { x, y, angle };
   }
@@ -8998,17 +9014,27 @@
         ctx.save();
         roundedRect(ctx, x + 12 * scale, textTop + 2 * scale, width - 24 * scale, Math.max(1, textHeight - 4 * scale), 3 * scale);
         ctx.clip();
-        const copyFontSize = Math.max(8, Math.round(9.2 * scale));
+        const copyFontSize = Math.max(8, Math.round((configCard.preview ? 9.2 : 10.4) * scale));
         ctx.fillStyle = "#2a2018";
-        ctx.font = `700 ${copyFontSize}px ${UI_FONT}`;
+        ctx.font = `${configCard.preview ? 700 : 900} ${copyFontSize}px ${UI_FONT}`;
         ctx.textAlign = "center";
-        ctx.textBaseline = "top";
-        const cardCopy = displayCardText(card, !configCard.preview);
-        const lines = semanticTextLines(ctx, cardCopy, width - 30 * scale, configCard.preview ? 6 : 2);
-        const lineHeight = Math.max(9, 11.5 * scale);
-        lines.forEach((line, index) => {
-          drawSmallAbilityLine(line, x + width / 2, textTop + 4 * scale + index * lineHeight, copyFontSize);
-        });
+        if (configCard.preview) {
+          ctx.textBaseline = "top";
+          const cardCopy = displayCardText(card, false);
+          const lines = semanticTextLines(ctx, cardCopy, width - 30 * scale, 6);
+          const lineHeight = Math.max(9, 11.5 * scale);
+          lines.forEach((line, index) => {
+            drawSmallAbilityLine(line, x + width / 2, textTop + 4 * scale + index * lineHeight, copyFontSize);
+          });
+        } else {
+          ctx.textBaseline = "middle";
+          drawCenteredText(ctx, cardTacticalLabel(card), x + width / 2, textTop + textHeight / 2, {
+            font: `900 ${copyFontSize}px ${UI_FONT}`,
+            color: "#3d2718",
+            stroke: "rgba(255,247,220,.72)",
+            strokeWidth: Math.max(0.8, 1.1 * scale),
+          });
+        }
         ctx.restore();
       }
 
@@ -10552,9 +10578,9 @@
         drawUtilityButtons();
         drawLog(state);
         drawPlayerHand(state.hands && state.hands.player || [], state, now);
-        drawHero("player", visualState.heroes && visualState.heroes.player || {}, state, now, false);
         drawMana(state.heroes && state.heroes.player || {}, now);
         drawPlayerHand(state.hands && state.hands.player || [], state, now, true);
+        drawHero("player", visualState.heroes && visualState.heroes.player || {}, state, now, false);
         drawPlayerVitalGemOverlay(
           visualState.heroes && visualState.heroes.player || {},
           state,
@@ -10935,7 +10961,7 @@
     backdrop.addColorStop(1, "#100e0c");
     galleryCtx.fillStyle = backdrop;
     galleryCtx.fillRect(0, 0, galleryWidth, galleryHeight);
-    drawCenteredText(galleryCtx, `${roster.length}인 한국 웹툰풍 초상 검수 · HAND 96×66 / DETAIL 250×126`, galleryWidth / 2, 27, {
+    drawCenteredText(galleryCtx, `${roster.length}인 애니 셀 초상 검수 · 밝은 마법 판타지 + 액션 컷`, galleryWidth / 2, 27, {
       font: `900 23px ${SYSTEM_FONT}`,
       color: "#ffe5a2",
       stroke: "#1b0e08",
@@ -11018,6 +11044,7 @@
     materialEdgeResponseCount: Object.keys(MATERIAL_EDGE_RESPONSES).length,
     testHooks: {
       semanticTextLines,
+      cardTacticalLabel,
       resolveCardKeywordDetails,
       normalizeInspectorAbilityText,
       inspectorContentModel,
@@ -11051,6 +11078,11 @@
       portraitCacheSnapshot,
       portraitArchetype,
       paintPortraitUncached,
+      legacyPortraitPainters: {
+        paintFacialDepthV8,
+        paintAnatomicalBrushworkV7,
+        paintSkinMicrostructure,
+      },
       faceArt7Profile,
       art7BrushBudget,
       art8FigureProfile,

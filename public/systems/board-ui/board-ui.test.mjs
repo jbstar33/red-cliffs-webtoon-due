@@ -214,11 +214,13 @@ test("keeps clicked inspection state until close or Escape and exposes it access
   assert.match(source, /const previewCard = inspection[\s\S]{0,140}hoverCard/);
 });
 
-test("clips small-card teaser copy to two semantic lines clear of stat gems", () => {
+test("shows one concise tactical label on cards while previews keep full semantic copy", () => {
   assert.match(source, /function semanticTextLines\(ctx, text, maxWidth, maxLines\)/);
+  assert.match(source, /function cardTacticalLabel\(card\)/);
   assert.match(source, /const statsClearance = configCard\.preview \? 25 \* scale : 28 \* scale/);
   assert.match(source, /roundedRect\(ctx, x \+ 12 \* scale,[\s\S]{0,220}ctx\.clip\(\)/);
-  assert.match(source, /configCard\.preview \? 6 : 2/);
+  assert.match(source, /if \(configCard\.preview\) \{[\s\S]{0,260}semanticTextLines\(ctx, cardCopy, width - 30 \* scale, 6\)/);
+  assert.match(source, /drawCenteredText\(ctx, cardTacticalLabel\(card\)/);
   assert.match(source, /getCardValue\(card, "summaryText", getCardValue\(card, "text", ""\)\)/);
   assert.match(source, /function inspectorTextLayout\(card, width, maxHeight\)/);
   assert.match(source, /const sizes = \[19, 18, 17, 16, 15, 14\]/);
@@ -512,10 +514,10 @@ test("pinned inspector blocks click-through and closing clears armed selection",
   assert.match(source, /function closeInspection\(announce\) \{[\s\S]{0,360}inspection = null;[\s\S]{0,80}cancelSelection\(\)/);
 });
 
-test("selected hand cards stay above the portrait while vital gems redraw last", () => {
+test("the player commander redraws above every hand card while vital gems stay last", () => {
   assert.match(
     source,
-    /drawPlayerHand\(state\.hands[\s\S]{0,180}drawHero\("player"[\s\S]{0,160}drawMana\([\s\S]{0,180}drawPlayerHand\(state\.hands[\s\S]{0,120}true\)[\s\S]{0,120}drawPlayerVitalGemOverlay\(/,
+    /drawLog\(state\)[\s\S]{0,160}drawPlayerHand\(state\.hands[\s\S]{0,160}drawMana\([\s\S]{0,180}drawPlayerHand\(state\.hands[\s\S]{0,120}true\)[\s\S]{0,160}drawHero\("player"[\s\S]{0,120}false\)[\s\S]{0,120}drawPlayerVitalGemOverlay\(/,
   );
   assert.match(source, /function drawPlayerHand\(cards, state, now, overlayOnly\)/);
   assert.match(source, /if \(!overlayOnly\) \{[\s\S]{0,260}addHit\([\s\S]{0,80}"hand-card"/);
@@ -538,15 +540,15 @@ test("shows only the concise tactical identity pill in inspection metadata", () 
   assert.match(mockSource, /tactics: \{ identity: tacticalIdentities\[general\[0\]\] \}/);
 });
 
-test("uses webtoon-finished portrait profiles and protects the art from name overlays", () => {
+test("uses anime-cel portrait finishes and protects the art from name overlays", () => {
   const painterProfiles = source.match(/"[^"]+": \{ yaw: [\d.]+, headX:/g) || [];
   assert.equal(painterProfiles.length, 28);
   assert.match(source, /function paintAtmosphericDepth\(/);
   assert.match(source, /function paintFaceValues\(/);
   assert.match(source, /function paintSurfaceGlaze\(/);
-  assert.match(source, /const strokes = compact \? 5 : 14/);
-  assert.match(source, /function paintWebtoonFaceFinish\(/);
-  assert.match(source, /function paintWebtoonPanelFinish\(/);
+  assert.match(source, /const strokes = compact \? 2 : 6/);
+  assert.match(source, /function paintAnimeCelFaceFinish\(/);
+  assert.match(source, /function paintAnimeActionPanelFinish\(/);
   assert.match(source, /compact \? 0\.16 : 0\.155/);
   const wrapperStart = source.indexOf("function drawPortrait(ctx");
   const wrapperEnd = source.indexOf("function portraitFacePath", wrapperStart);
@@ -586,7 +588,7 @@ test("art7 gives the complete roster unique facial sittings with bounded brush b
   assert.ok(detailBudgets.every((budget) => budget > 7));
 });
 
-test("art7 bakes anatomical, material, hair, beard, and depth-of-field layers only into portraits", () => {
+test("keeps material, hair, beard, and depth layers while the anime path skips painterly skin texture", () => {
   for (const painter of [
     "paintAnatomicalBrushworkV7",
     "paintIndividualFaceMarksV7",
@@ -602,15 +604,15 @@ test("art7 bakes anatomical, material, hair, beard, and depth-of-field layers on
   const portraitEnd = source.indexOf("function heroShieldPath", portraitStart);
   const portraitBody = source.slice(portraitStart, portraitEnd);
   const planes = portraitBody.indexOf("paintFacePlanes(");
-  const anatomy = portraitBody.indexOf("paintAnatomicalBrushworkV7(");
-  const microstructure = portraitBody.indexOf("paintSkinMicrostructure(");
   const features = portraitBody.indexOf("paintFacialFeatures(");
   const marks = portraitBody.indexOf("paintIndividualFaceMarksV7(");
   const hair = portraitBody.indexOf("paintHairEdgeResponseV7(");
   const beard = portraitBody.indexOf("paintBeardEdgeResponseV7(");
-  assert.ok(planes < anatomy && anatomy < microstructure);
-  assert.ok(microstructure < features && features < marks && marks < hair && hair < beard);
-  assert.match(portraitBody, /WEBTOON_STYLE_VERSION/);
+  assert.ok(planes < features && features < marks && marks < hair && hair < beard);
+  assert.doesNotMatch(portraitBody, /paintFacialDepthV8\(/);
+  assert.doesNotMatch(portraitBody, /paintAnatomicalBrushworkV7\(/);
+  assert.doesNotMatch(portraitBody, /paintSkinMicrostructure\(/);
+  assert.match(portraitBody, /ANIME_CEL_STYLE_VERSION/);
   assert.doesNotMatch(portraitBody, /Math\.random/);
 
   const backgroundDof = portraitBody.indexOf("paintBackgroundDepthOfFieldV7(");
@@ -621,7 +623,7 @@ test("art7 bakes anatomical, material, hair, beard, and depth-of-field layers on
   const glaze = portraitBody.indexOf("paintSurfaceGlaze(");
   assert.ok(backgroundDof >= 0 && backgroundDof < subjectBacklight);
   assert.ok(weapon < nearDof && nearDof < compactSignature && compactSignature < glaze);
-  assert.match(source, /WEBTOON_STYLE_VERSION,[\s\S]{0,120}profile\.bucket/);
+  assert.match(source, /ANIME_CEL_STYLE_VERSION,[\s\S]{0,120}profile\.bucket/);
 });
 
 test("art7 material edges have six measurably different softness, shine, and occlusion responses", () => {
@@ -1289,17 +1291,18 @@ test("art8 gives all twenty-eight action profiles distinct articulated figures a
   assert.match(source, /const palmDepth = index \? figure\.farPalmDepth : figure\.nearPalmDepth/);
 });
 
-test("webtoon v9 finishes every portrait with cel planes, ink eyes, halftone, and panel cuts", () => {
-  assert.match(source, /const WEBTOON_STYLE_VERSION = "webtoon-v9"/);
-  assert.match(source, /function paintWebtoonFaceFinish\(/);
-  assert.match(source, /Korean action-webtoon cel shading/);
-  assert.match(source, /const drawWebtoonEye =/);
-  assert.match(source, /function paintWebtoonPanelFinish\(/);
-  assert.match(source, /const speedLineCount = compact \? 5 : 11/);
-  assert.match(source, /const dotColumns = compact \? 4 : 7/);
-  assert.match(source, /paintHairEdgeResponseV7[\s\S]{0,120}paintWebtoonFaceFinish/);
-  assert.match(source, /paintSurfaceGlaze[\s\S]{0,220}paintWebtoonPanelFinish/);
-  assert.match(source, /한국 웹툰풍 초상 검수/);
+test("anime-cel v10 combines bright magic faces with action-cut speed lines", () => {
+  assert.match(source, /const ANIME_CEL_STYLE_VERSION = "anime-cel-v10"/);
+  assert.match(source, /function paintAnimeCelFaceFinish\(/);
+  assert.match(source, /Bright fantasy-anime cel shading/);
+  assert.match(source, /const drawAnimeEye =/);
+  assert.match(source, /function paintAnimeActionPanelFinish\(/);
+  assert.match(source, /const speedLineCount = compact \? 7 : 15/);
+  assert.match(source, /Flat cyan magic rings/);
+  assert.doesNotMatch(source, /const dotColumns =/);
+  assert.match(source, /paintHairEdgeResponseV7[\s\S]{0,120}paintAnimeCelFaceFinish/);
+  assert.match(source, /paintSurfaceGlaze[\s\S]{0,220}paintAnimeActionPanelFinish/);
+  assert.match(source, /애니 셀 초상 검수/);
 });
 
 test("builds five explicit facial value planes and stronger expression extremes", () => {
@@ -1316,15 +1319,13 @@ test("builds five explicit facial value planes and stronger expression extremes"
   const portraitPaintStart = source.indexOf("function paintPortraitUncached");
   const valuesCall = source.indexOf("paintFaceValues(", portraitPaintStart);
   const planesCall = source.indexOf("paintFacePlanes(", valuesCall);
-  const microstructureCall = source.indexOf("paintSkinMicrostructure(", planesCall);
-  const featuresCall = source.indexOf("paintFacialFeatures(", microstructureCall);
+  const featuresCall = source.indexOf("paintFacialFeatures(", planesCall);
   assert.ok(
     portraitPaintStart >= 0
       && valuesCall > portraitPaintStart
       && planesCall > valuesCall
-      && microstructureCall > planesCall
-      && featuresCall > microstructureCall,
-    "face rendering must progress from values through planes and skin microstructure into features",
+      && featuresCall > planesCall,
+    "face rendering must progress from values through broad planes into clean features",
   );
   assert.match(source, /fury: \{ browSlope: 0\.23, eyeOpen: 1\.28/);
   assert.match(source, /tired: \{ browSlope: -0\.15, eyeOpen: 0\.32/);
@@ -1645,11 +1646,13 @@ test("sparse hands stay left of player hero, vital gems, mana, and the opposite 
     hooks.playerHandLayoutGeometry(2, 0),
     hooks.playerHandLayoutGeometry(2, 1),
   ];
-  assert.deepEqual({ ...one }, { x: 490, y: 660, angle: 0 });
+  assert.deepEqual({ ...one }, { x: 490, y: 677, angle: 0 });
   assert.deepEqual(two.map(({ x }) => x), [452, 528]);
-  assert.deepEqual(two.map(({ y }) => y), [668, 668]);
+  assert.deepEqual(two.map(({ y }) => y), [680, 680]);
   assert.equal(two[0].angle, -0.0575);
   assert.equal(two[1].angle, 0.0575);
+  assert.ok(Math.max(one.y, ...two.map(({ y }) => y)) + 74 < 768,
+    "lowered cards keep their attack and health gems inside the canvas");
 
   const cardWidth = 116;
   const cardHeight = 166;
@@ -1678,7 +1681,7 @@ test("sparse hands stay left of player hero, vital gems, mana, and the opposite 
   assert.match(source, /panelSide: pointer\.x < LOGICAL_WIDTH \/ 2 \? "right" : "left"/);
 });
 
-test("three-to-five-card fan coordinates remain unchanged after sparse-hand safety layout", () => {
+test("three-to-five-card fans rest below the foreground commander", () => {
   const sandbox = { globalThis: {} };
   vm.runInNewContext(source, sandbox, { filename: "board-ui/index.js" });
   const layout = sandbox.globalThis.TK.modules.boardUI.testHooks.playerHandLayoutGeometry;
@@ -1690,8 +1693,8 @@ test("three-to-five-card fan coordinates remain unchanged after sparse-hand safe
   for (const count of [3, 4, 5]) {
     const fan = Array.from({ length: count }, (_, index) => layout(count, index));
     assert.deepEqual(fan.map(({ x }) => x), expectedX[count]);
-    assert.equal(fan[0].y, 676);
-    assert.equal(fan.at(-1).y, 676);
+    assert.equal(fan[0].y, 683);
+    assert.equal(fan.at(-1).y, 683);
     assert.equal(fan[0].angle, -0.115);
     assert.equal(fan.at(-1).angle, 0.115);
   }

@@ -498,8 +498,13 @@ commanderFx.handleEvent("commander:power", {
 });
 assert.equal(
   commanderFx._debug().jobs,
-  beforeNomadPower,
-  "nomad commander:power waits for the immediately following semantic lock event"
+  beforeNomadPower + 1,
+  "nomad power immediately adds its commander cut-in"
+);
+assert.equal(
+  commanderFx._debug().timelines.filter((job) => job.kind === "commander-lock").length,
+  0,
+  "the lasso itself still waits for the immediately following semantic lock event"
 );
 commanderFx.handleEvent("commander:lock", {
   actor: "player",
@@ -525,6 +530,20 @@ const reflectTimeline = commanderTimelines.find((job) => job.kind === "commander
 const floodTimeline = commanderTimelines.find((job) => job.kind === "commander-flood");
 const floodHits = commanderTimelines.filter((job) => job.kind === "commander-flood-hit");
 const lockTimelines = commanderTimelines.filter((job) => job.kind === "commander-lock");
+const emphasisTimelines = commanderTimelines.filter((job) => job.kind === "commander-emphasis");
+assert.equal(emphasisTimelines.length, 4, "every commander activation gets one readable power cut-in");
+assert.equal(
+  JSON.stringify(emphasisTimelines.map((job) => [job.commanderId, job.label])),
+  JSON.stringify([
+    ["caocao", "패왕의 휴식"],
+    ["liubei", "인덕의 반사"],
+    ["sunquan", "수공"],
+    ["nomad", "족쇄 명령"]
+  ])
+);
+assert.ok(emphasisTimelines.every((job) => job.layer === 3));
+assert.ok(emphasisTimelines.every((job) => job.x === 600 && job.y === 610));
+assert.ok(emphasisTimelines.every((job) => job.signature.endsWith(":anime-power-cut")));
 assert.equal(healTimeline.signature, "caocao:healing-rune");
 assert.equal(healTimeline.color, "#8eeaff");
 assert.equal(healTimeline.secondaryColor, "#effdff");
@@ -565,8 +584,8 @@ assert.ok(lockTimelines.every((job) => job.signature === "nomad:lasso-seal"));
 assert.ok(lockTimelines.every((job) => job.color === "#d5a55d"));
 assert.ok(lockTimelines.every((job) => job.x === 470 && job.y === 220));
 assert.ok(
-  [healTimeline, reflectTimeline, floodTimeline, ...floodHits, ...lockTimelines]
-    .every((timeline) => timeline.duration > 0 && timeline.duration <= 0.86),
+  [...emphasisTimelines, healTimeline, reflectTimeline, floodTimeline, ...floodHits, ...lockTimelines]
+    .every((timeline) => timeline.duration > 0 && timeline.duration <= 0.9),
   "commander cues use concise bounded lifetimes"
 );
 assert.equal(commanderFx.hasActiveVisuals(), true);
