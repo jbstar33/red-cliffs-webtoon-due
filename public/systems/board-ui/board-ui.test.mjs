@@ -6,6 +6,7 @@ import test from "node:test";
 const source = fs.readFileSync(new URL("./index.js", import.meta.url), "utf8");
 const mockSource = fs.readFileSync(new URL("./mock.html", import.meta.url), "utf8");
 const cardDataSource = fs.readFileSync(new URL("../card-data/index.js", import.meta.url), "utf8");
+const gameShellSource = fs.readFileSync(new URL("../../../app/GameShell.tsx", import.meta.url), "utf8");
 
 function createFake2dHarness() {
   const contexts = [];
@@ -1291,18 +1292,52 @@ test("art8 gives all twenty-eight action profiles distinct articulated figures a
   assert.match(source, /const palmDepth = index \? figure\.farPalmDepth : figure\.nearPalmDepth/);
 });
 
-test("anime-cel v10 combines bright magic faces with action-cut speed lines", () => {
-  assert.match(source, /const ANIME_CEL_STYLE_VERSION = "anime-cel-v10"/);
-  assert.match(source, /function paintAnimeCelFaceFinish\(/);
-  assert.match(source, /Bright fantasy-anime cel shading/);
-  assert.match(source, /const drawAnimeEye =/);
-  assert.match(source, /function paintAnimeActionPanelFinish\(/);
-  assert.match(source, /const speedLineCount = compact \? 7 : 15/);
-  assert.match(source, /Flat cyan magic rings/);
-  assert.doesNotMatch(source, /const dotColumns =/);
-  assert.match(source, /paintHairEdgeResponseV7[\s\S]{0,120}paintAnimeCelFaceFinish/);
-  assert.match(source, /paintSurfaceGlaze[\s\S]{0,220}paintAnimeActionPanelFinish/);
-  assert.match(source, /애니 셀 초상 검수/);
+test("anime-cel v11 replaces the complete portrait construction and busts stale caches", () => {
+  assert.match(source, /const ANIME_CEL_STYLE_VERSION = "anime-cel-v11"/);
+  for (const painter of [
+    "paintAnimeV11Backdrop",
+    "paintAnimeV11Body",
+    "paintAnimeV11Face",
+    "paintAnimeV11HairFront",
+    "paintAnimeV11Headgear",
+    "paintAnimeV11Weapon",
+    "paintAnimePortraitV11",
+  ]) {
+    assert.match(source, new RegExp(`function ${painter}\\(`));
+  }
+  assert.match(source, /broad white-to-colour diagonal replaces the old dark painted scenery/);
+  assert.match(source, /Large cel-shadow wedge gives the garment/);
+  const animeStart = source.indexOf("function paintAnimePortraitV11");
+  const animeEnd = source.indexOf("function paintPortraitUncached", animeStart);
+  const animeBody = source.slice(animeStart, animeEnd);
+  const animeOrder = [
+    "paintAnimeV11Backdrop(",
+    "paintAnimeV11Body(",
+    "paintAnimeV11HairBack(",
+    "paintAnimeV11Face(",
+    "paintAnimeV11HairFront(",
+    "paintAnimeV11Beard(",
+    "paintAnimeV11Headgear(",
+    "paintAnimeV11Weapon(",
+  ].map((call) => animeBody.indexOf(call));
+  assert.ok(animeOrder.every((position) => position >= 0));
+  assert.deepEqual([...animeOrder].sort((a, b) => a - b), animeOrder);
+  assert.match(source, /animeV11Enabled[\s\S]{0,120}paintAnimePortraitV11/);
+  assert.match(gameShellSource, /const gameAssetVersion = "anime-v11-20260731"/);
+  assert.match(gameShellSource, /\.map\(\(src\) => `\$\{src\}\?v=\$\{gameAssetVersion\}`\)/);
+  assert.match(gameShellSource, /data-art-version=\{gameAssetVersion\}/);
+
+  const sandbox = { globalThis: {} };
+  vm.runInNewContext(source, sandbox, { filename: "board-ui/index.js" });
+  vm.runInNewContext(cardDataSource, sandbox, { filename: "card-data/index.js" });
+  const boardModule = sandbox.globalThis.TK.modules.boardUI;
+  const cards = Array.from(sandbox.globalThis.TK.modules.cardData.getCards());
+  const identities = cards.map((card) => boardModule.testHooks.animeV11IdentityProfile(
+    card,
+    boardModule.testHooks.portraitArchetype(card),
+  ));
+  assert.equal(boardModule.animeArtVersion, "anime-cel-v11");
+  assert.equal(new Set(identities.map((profile) => JSON.stringify(profile))).size, cards.length);
 });
 
 test("builds five explicit facial value planes and stronger expression extremes", () => {

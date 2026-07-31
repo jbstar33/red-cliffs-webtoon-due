@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 
+const gameAssetVersion = "anime-v11-20260731";
 const scripts = [
   "/systems/card-data/index.js",
   "/systems/rules-engine/index.js",
@@ -10,7 +11,7 @@ const scripts = [
   "/systems/fx-animation/index.js",
   "/systems/board-ui/index.js",
   "/game/main.js",
-];
+].map((src) => `${src}?v=${gameAssetVersion}`);
 
 declare global {
   interface Window {
@@ -366,7 +367,11 @@ export function GameShell() {
   }, []);
 
   return (
-    <main id="game-shell" aria-label="적벽전설 카드 대전">
+    <main
+      id="game-shell"
+      aria-label="적벽전설 카드 대전"
+      data-art-version={gameAssetVersion}
+    >
       <section id="game-stage" aria-live="polite">
         <canvas
           id="game-canvas"

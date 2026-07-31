@@ -5656,7 +5656,7 @@
     ctx.restore();
   }
 
-  const ANIME_CEL_STYLE_VERSION = "anime-cel-v10";
+  const ANIME_CEL_STYLE_VERSION = "anime-cel-v11";
 
   function paintAnimeCelFaceFinish(ctx, cx, cy, radius, art, pose, compact) {
     const facing = art.facing || 1;
@@ -6437,12 +6437,908 @@
     ctx.restore();
   }
 
+  function animeV11FacePath(ctx, cx, cy, radius, art, landmarks) {
+    const feminine = Boolean(art.feminine);
+    const temple = feminine ? 0.7 : clamp(landmarks.templeWidth, 0.72, 0.94);
+    const jaw = feminine ? 0.42 : clamp(landmarks.jawAngle, 0.42, 0.78);
+    const chin = feminine ? 0.82 : 0.76 + landmarks.chinPoint * 0.35;
+    ctx.beginPath();
+    ctx.moveTo(cx, cy - radius * 0.94);
+    ctx.bezierCurveTo(
+      cx + radius * temple,
+      cy - radius * 0.86,
+      cx + radius * 0.82,
+      cy - radius * 0.18,
+      cx + radius * jaw,
+      cy + radius * 0.44,
+    );
+    ctx.quadraticCurveTo(
+      cx + radius * 0.24,
+      cy + radius * chin,
+      cx,
+      cy + radius * 0.94,
+    );
+    ctx.quadraticCurveTo(
+      cx - radius * 0.24,
+      cy + radius * chin,
+      cx - radius * jaw,
+      cy + radius * 0.44,
+    );
+    ctx.bezierCurveTo(
+      cx - radius * 0.82,
+      cy - radius * 0.18,
+      cx - radius * temple,
+      cy - radius * 0.86,
+      cx,
+      cy - radius * 0.94,
+    );
+    ctx.closePath();
+  }
+
+  function animeV11IdentityProfile(card, art) {
+    const id = String(getCardValue(card, "id", art.archetype || ""));
+    const hash = hashString(`${id}|anime-v11-identity`);
+    return {
+      hairVariant: hash % 5,
+      fringeBias: ((hash >>> 3) % 9 - 4) / 18,
+      irisRing: ((hash >>> 7) % 5) / 5,
+      magicPhase: ((hash >>> 11) % 24) / 24 * TAU,
+      emblemSides: 3 + ((hash >>> 16) % 5),
+      flareCount: 7 + ((hash >>> 20) % 6),
+    };
+  }
+
+  function paintAnimeV11Backdrop(ctx, x, y, width, height, card, art, style, pose, seed, compact) {
+    const noise = seededNoise(seed ^ 0x11ace);
+    const fiery = /fire|red-cliffs|hulao|guandu/.test(String(art.scene));
+    const watery = /river|fleet|tide|wave|yangtze/.test(`${art.scene}|${art.background}`);
+    const arcane = /stars|constellation|raven|bamboo|ink|map/.test(`${art.scene}|${art.background}`);
+    const jungle = /jungle|beast|rattan|tribal|capture/.test(`${art.scene}|${art.background}`);
+    const topColor = fiery
+      ? "#ff8a58"
+      : watery
+        ? "#51bfe0"
+        : arcane
+          ? "#8d86e8"
+          : jungle
+            ? "#8ccf67"
+            : portraitSaturationColor(style.glow, 1.18, 1.05);
+    const bottomColor = portraitSaturationColor(style.primary, 1.08, 0.48);
+
+    const sky = ctx.createLinearGradient(x, y, x + width, y + height);
+    sky.addColorStop(0, portraitShiftColor(topColor, 0.12));
+    sky.addColorStop(0.42, portraitSaturationColor(style.primary, 1.2, 0.82));
+    sky.addColorStop(1, portraitShiftColor(bottomColor, -0.3));
+    ctx.fillStyle = sky;
+    ctx.fillRect(x, y, width, height);
+
+    // A broad white-to-colour diagonal replaces the old dark painted scenery
+    // and makes the new anime direction obvious even at 96px hand-card size.
+    ctx.fillStyle = "rgba(255,250,238,.17)";
+    ctx.beginPath();
+    ctx.moveTo(x - width * 0.08, y + height * 0.08);
+    ctx.lineTo(x + width * 0.56, y - height * 0.04);
+    ctx.lineTo(x + width * 0.22, y + height * 1.08);
+    ctx.lineTo(x - width * 0.2, y + height * 0.86);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = "rgba(10,17,35,.24)";
+    ctx.beginPath();
+    ctx.moveTo(x + width * 0.72, y - height * 0.08);
+    ctx.lineTo(x + width * 1.08, y + height * 0.06);
+    ctx.lineTo(x + width * 0.76, y + height * 1.08);
+    ctx.lineTo(x + width * 0.52, y + height * 0.94);
+    ctx.closePath();
+    ctx.fill();
+
+    const sigilX = x + width * (art.facing > 0 ? 0.25 : 0.75);
+    const sigilY = y + height * 0.42;
+    const sigilRadius = width * (compact ? 0.29 : 0.27);
+    ctx.save();
+    ctx.translate(sigilX, sigilY);
+    ctx.rotate((noise() - 0.5) * 0.8);
+    ctx.globalCompositeOperation = "lighter";
+    ctx.strokeStyle = colorWithAlpha(pose.accent, compact ? 0.64 : 0.56);
+    ctx.lineWidth = Math.max(0.8, width * 0.009);
+    for (let ring = 0; ring < 3; ring += 1) {
+      ctx.beginPath();
+      ctx.arc(0, 0, sigilRadius * (0.48 + ring * 0.25), -Math.PI * 0.92, Math.PI * 0.86);
+      ctx.stroke();
+    }
+    ctx.lineWidth = Math.max(0.6, width * 0.005);
+    ctx.beginPath();
+    for (let point = 0; point < 6; point += 1) {
+      const angle = point * TAU / 6;
+      const px = Math.cos(angle) * sigilRadius * 0.68;
+      const py = Math.sin(angle) * sigilRadius * 0.68;
+      if (point === 0) ctx.moveTo(px, py);
+      else ctx.lineTo(px, py);
+    }
+    ctx.closePath();
+    ctx.stroke();
+    ctx.restore();
+
+    const motifCount = compact ? 5 : 9;
+    ctx.save();
+    ctx.globalCompositeOperation = "lighter";
+    for (let motif = 0; motif < motifCount; motif += 1) {
+      const mx = x + width * (0.06 + noise() * 0.88);
+      const my = y + height * (0.08 + noise() * 0.76);
+      const size = width * (0.008 + noise() * 0.017);
+      ctx.fillStyle = colorWithAlpha(
+        motif % 3 === 0 ? "#ffffff" : pose.accent,
+        compact ? 0.5 : 0.42,
+      );
+      if (fiery) {
+        ctx.beginPath();
+        ctx.moveTo(mx, my - size * 2.4);
+        ctx.quadraticCurveTo(mx + size * 1.7, my, mx, my + size * 1.4);
+        ctx.quadraticCurveTo(mx - size * 1.5, my, mx, my - size * 2.4);
+        ctx.fill();
+      } else if (watery) {
+        ctx.beginPath();
+        ctx.arc(mx, my, size * 1.8, Math.PI * 0.1, Math.PI * 0.9);
+        ctx.strokeStyle = ctx.fillStyle;
+        ctx.lineWidth = Math.max(0.5, size * 0.45);
+        ctx.stroke();
+      } else {
+        ctx.fillRect(mx - size * 0.5, my - size * 2.2, size, size * 4.4);
+        ctx.fillRect(mx - size * 2.2, my - size * 0.5, size * 4.4, size);
+      }
+    }
+    ctx.restore();
+
+    ctx.strokeStyle = "rgba(255,255,255,.24)";
+    ctx.lineCap = "round";
+    for (let line = 0; line < (compact ? 8 : 13); line += 1) {
+      const fromRight = line % 2 === 0;
+      const sy = y + height * (0.05 + noise() * 0.9);
+      ctx.lineWidth = Math.max(0.55, width * (line % 3 === 0 ? 0.009 : 0.004));
+      ctx.beginPath();
+      ctx.moveTo(x + width * (fromRight ? 1.04 : -0.04), sy);
+      ctx.lineTo(
+        x + width * (fromRight ? 0.72 : 0.28),
+        sy + (noise() - 0.5) * height * 0.18,
+      );
+      ctx.stroke();
+    }
+  }
+
+  function paintAnimeV11Body(ctx, x, y, width, height, art, style, pose, action, cx, compact) {
+    const shoulderY = y + height * 0.62;
+    const bottomY = y + height * 1.08;
+    const broad = /giant|guardian|bulwark|king|wild|beast/.test(art.archetype);
+    const shoulderWidth = width * (broad ? 0.43 : art.feminine ? 0.34 : 0.38);
+    const torsoLean = pose.lean + action.torsoAngle * 0.72;
+
+    ctx.save();
+    ctx.translate(cx, shoulderY);
+    ctx.rotate(torsoLean);
+    ctx.translate(-cx, -shoulderY);
+
+    ctx.fillStyle = "rgba(8,14,28,.52)";
+    ctx.strokeStyle = "rgba(12,18,31,.98)";
+    ctx.lineWidth = Math.max(1.4, width * 0.018);
+    ctx.beginPath();
+    ctx.moveTo(cx - shoulderWidth * 1.05, shoulderY + height * 0.02);
+    ctx.quadraticCurveTo(cx, shoulderY - height * 0.12, cx + shoulderWidth * 1.05, shoulderY + height * 0.02);
+    ctx.lineTo(cx + shoulderWidth * 0.82, bottomY);
+    ctx.lineTo(cx - shoulderWidth * 0.82, bottomY);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+
+    const robe = ctx.createLinearGradient(cx - shoulderWidth, shoulderY, cx + shoulderWidth, bottomY);
+    robe.addColorStop(0, portraitSaturationColor(art.robe || style.primary, 1.18, 1.02));
+    robe.addColorStop(0.52, art.robe || style.primary);
+    robe.addColorStop(1, portraitShiftColor(style.primary, -0.34));
+    ctx.fillStyle = robe;
+    ctx.beginPath();
+    ctx.moveTo(cx - shoulderWidth, shoulderY);
+    ctx.quadraticCurveTo(cx, shoulderY - height * 0.08, cx + shoulderWidth, shoulderY);
+    ctx.lineTo(cx + shoulderWidth * 0.72, bottomY);
+    ctx.lineTo(cx - shoulderWidth * 0.72, bottomY);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+
+    // Large cel-shadow wedge gives the garment a deliberate animation fill.
+    ctx.save();
+    ctx.globalAlpha = 0.34;
+    ctx.fillStyle = "#10162a";
+    ctx.beginPath();
+    ctx.moveTo(cx - shoulderWidth, shoulderY);
+    ctx.lineTo(cx - shoulderWidth * 0.06, shoulderY - height * 0.04);
+    ctx.lineTo(cx - shoulderWidth * 0.2, bottomY);
+    ctx.lineTo(cx - shoulderWidth * 0.72, bottomY);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+
+    ctx.strokeStyle = colorWithAlpha(style.secondary, 0.94);
+    ctx.lineWidth = Math.max(1.2, width * 0.015);
+    ctx.beginPath();
+    ctx.moveTo(cx - shoulderWidth * 0.56, shoulderY + height * 0.02);
+    ctx.lineTo(cx, shoulderY + height * 0.24);
+    ctx.lineTo(cx + shoulderWidth * 0.56, shoulderY + height * 0.02);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(cx, shoulderY + height * 0.24);
+    ctx.lineTo(cx, bottomY);
+    ctx.stroke();
+
+    const armored = /helmet|halberd|shield|lance|spear|maul|bulwark|cavalier/.test(
+      `${art.headgear}|${art.weapon}|${art.archetype}`,
+    );
+    if (armored) {
+      ctx.fillStyle = colorWithAlpha(style.secondary, 0.56);
+      ctx.strokeStyle = colorWithAlpha("#fff5cc", 0.48);
+      for (const side of [-1, 1]) {
+        ctx.beginPath();
+        ctx.moveTo(cx + side * shoulderWidth * 0.54, shoulderY - height * 0.015);
+        ctx.lineTo(cx + side * shoulderWidth * 1.02, shoulderY + height * 0.02);
+        ctx.lineTo(cx + side * shoulderWidth * 0.88, shoulderY + height * 0.2);
+        ctx.lineTo(cx + side * shoulderWidth * 0.44, shoulderY + height * 0.13);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+      }
+    }
+
+    if (!compact) {
+      ctx.fillStyle = colorWithAlpha(pose.accent, 0.78);
+      ctx.beginPath();
+      ctx.arc(cx, shoulderY + height * 0.3, width * 0.037, 0, TAU);
+      ctx.fill();
+      ctx.strokeStyle = "#fff5d8";
+      ctx.lineWidth = Math.max(0.8, width * 0.006);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  function paintAnimeV11HairBack(ctx, cx, cy, radius, art, identity) {
+    if (/helmet|mask/.test(art.headgear) && !art.feminine) return;
+    const longHair = art.feminine || /young|cavalier|monarch|strategist|tactician/.test(art.archetype);
+    const hairTone = /white/.test(art.beard) ? "#d9e0e8" : "#11172a";
+    ctx.fillStyle = hairTone;
+    ctx.strokeStyle = "#0a1020";
+    ctx.lineWidth = Math.max(1.2, radius * 0.075);
+    if (longHair) {
+      ctx.beginPath();
+      ctx.moveTo(cx - radius * 0.75, cy - radius * 0.48);
+      ctx.quadraticCurveTo(cx - radius * 1.08, cy + radius * 0.5, cx - radius * (0.74 + identity.fringeBias), cy + radius * 1.82);
+      ctx.lineTo(cx - radius * 0.2, cy + radius * 1.45);
+      ctx.quadraticCurveTo(cx, cy + radius * 0.72, cx + radius * 0.2, cy + radius * 1.45);
+      ctx.lineTo(cx + radius * (0.74 - identity.fringeBias), cy + radius * 1.82);
+      ctx.quadraticCurveTo(cx + radius * 1.08, cy + radius * 0.5, cx + radius * 0.75, cy - radius * 0.48);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+    }
+    ctx.beginPath();
+    ctx.arc(cx, cy - radius * 0.18, radius * 0.92, Math.PI, TAU);
+    ctx.lineTo(cx + radius * 0.7, cy + radius * 0.22);
+    ctx.quadraticCurveTo(cx, cy - radius * 0.24, cx - radius * 0.7, cy + radius * 0.22);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+  }
+
+  function paintAnimeV11Eye(ctx, eyeX, eyeY, width, height, facing, irisColor, fierce, identity, compact) {
+    ctx.beginPath();
+    ctx.moveTo(eyeX - width, eyeY);
+    ctx.quadraticCurveTo(eyeX, eyeY - height, eyeX + width, eyeY);
+    ctx.quadraticCurveTo(eyeX, eyeY + height * 0.66, eyeX - width, eyeY);
+    ctx.closePath();
+    ctx.fillStyle = "#fffdf8";
+    ctx.fill();
+    ctx.strokeStyle = "#10162b";
+    ctx.lineWidth = Math.max(0.9, width * 0.22);
+    ctx.stroke();
+
+    const irisX = eyeX + facing * width * 0.14;
+    const irisY = eyeY + height * 0.05;
+    const irisRadius = height * (fierce ? 0.68 : 0.82);
+    ctx.fillStyle = irisColor;
+    ellipsePath(ctx, irisX, irisY, irisRadius * 0.72, irisRadius);
+    ctx.fill();
+    ctx.strokeStyle = colorWithAlpha("#091023", 0.75);
+    ctx.lineWidth = Math.max(0.55, width * 0.08);
+    ctx.stroke();
+    ctx.fillStyle = "#090d1b";
+    ellipsePath(ctx, irisX, irisY, irisRadius * 0.33, irisRadius * 0.54);
+    ctx.fill();
+    ctx.fillStyle = "#ffffff";
+    ellipsePath(
+      ctx,
+      irisX + facing * irisRadius * 0.24,
+      irisY - irisRadius * 0.28,
+      Math.max(0.62, irisRadius * 0.18),
+      Math.max(0.62, irisRadius * 0.18),
+    );
+    ctx.fill();
+    if (!compact) {
+      ctx.fillStyle = colorWithAlpha("#ffffff", 0.78 + identity.irisRing * 0.18);
+      ellipsePath(
+        ctx,
+        irisX - facing * irisRadius * 0.14,
+        irisY + irisRadius * 0.34,
+        Math.max(0.45, irisRadius * 0.09),
+        Math.max(0.45, irisRadius * 0.09),
+      );
+      ctx.fill();
+    }
+  }
+
+  function paintAnimeV11Face(ctx, cx, cy, radius, card, art, style, pose, identity, compact) {
+    const landmarks = faceLandmarks(art);
+    const profile = faceArt7Profile(art);
+    const expression = expressionGeometry(pose);
+    const fierce = /fury|glare|charge|scarred|raider|arrogant|snarl|unyielding|piercing/.test(pose.expression);
+    const facing = art.facing || 1;
+    const skin = profile.warm || (art.feminine ? "#efb49a" : "#d99b75");
+    const skinLight = portraitSaturationColor(skin, 0.78, 1.16);
+
+    animeV11FacePath(ctx, cx, cy, radius, art, landmarks);
+    ctx.fillStyle = skinLight;
+    ctx.fill();
+    ctx.strokeStyle = "#15192b";
+    ctx.lineWidth = Math.max(1.2, radius * (compact ? 0.075 : 0.052));
+    ctx.stroke();
+
+    ctx.save();
+    animeV11FacePath(ctx, cx, cy, radius, art, landmarks);
+    ctx.clip();
+    ctx.fillStyle = colorWithAlpha(profile.cool || "#6b6680", 0.22);
+    ctx.beginPath();
+    ctx.moveTo(cx - facing * radius * 1.06, cy - radius * 0.92);
+    ctx.lineTo(cx - facing * radius * 0.06, cy - radius * 0.45);
+    ctx.lineTo(cx - facing * radius * 0.18, cy + radius * 0.22);
+    ctx.lineTo(cx - facing * radius * 0.74, cy + radius * 0.72);
+    ctx.lineTo(cx - facing * radius * 1.08, cy + radius * 0.38);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = "rgba(255,247,225,.28)";
+    ctx.beginPath();
+    ctx.moveTo(cx + facing * radius * 0.02, cy - radius * 0.78);
+    ctx.lineTo(cx + facing * radius * 0.72, cy - radius * 0.52);
+    ctx.lineTo(cx + facing * radius * 0.52, cy + radius * 0.06);
+    ctx.lineTo(cx + facing * radius * 0.14, cy + radius * 0.18);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = "rgba(86,40,55,.18)";
+    ctx.beginPath();
+    ctx.moveTo(cx - radius * 0.62, cy + radius * 0.48);
+    ctx.quadraticCurveTo(cx, cy + radius * 0.76, cx + radius * 0.62, cy + radius * 0.48);
+    ctx.lineTo(cx + radius * 0.34, cy + radius * 0.88);
+    ctx.lineTo(cx - radius * 0.34, cy + radius * 0.88);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+
+    const eyeY = cy - radius * (art.feminine ? 0.13 : 0.1);
+    const eyeSpacing = radius * (0.25 + profile.eyeSet * 0.12);
+    const eyeWidth = radius * (art.feminine ? 0.25 : 0.22) * clamp(profile.eyeWidth, 0.78, 1.2);
+    const eyeHeight = radius * (art.feminine ? 0.15 : fierce ? 0.09 : 0.125) * expression.eyeOpen;
+    const irisColor = /fire|fury|arrogant|confident/.test(`${art.scene}|${pose.expression}`)
+      ? "#e85c52"
+      : /river|wave|fleet|white|silver/.test(`${art.scene}|${art.archetype}`)
+        ? "#4fc7ec"
+        : /jungle|beast|rattan/.test(`${art.scene}|${art.archetype}`)
+          ? "#8fd65a"
+          : portraitSaturationColor(style.glow, 1.3, 0.9);
+    paintAnimeV11Eye(
+      ctx,
+      cx - facing * eyeSpacing,
+      eyeY + radius * landmarks.asymmetry * 0.12,
+      eyeWidth * 0.82,
+      eyeHeight * 0.85,
+      facing,
+      irisColor,
+      fierce,
+      identity,
+      compact,
+    );
+    paintAnimeV11Eye(
+      ctx,
+      cx + facing * eyeSpacing,
+      eyeY - radius * landmarks.asymmetry * 0.1,
+      eyeWidth,
+      eyeHeight,
+      facing,
+      irisColor,
+      fierce,
+      identity,
+      compact,
+    );
+
+    const browLift = fierce ? radius * 0.1 : radius * 0.035;
+    ctx.strokeStyle = "#17162a";
+    ctx.lineWidth = Math.max(1, radius * (compact ? 0.09 : 0.065));
+    ctx.lineCap = "round";
+    ctx.beginPath();
+    ctx.moveTo(cx - facing * (eyeSpacing + eyeWidth), eyeY - eyeHeight * 1.55);
+    ctx.lineTo(cx - facing * (eyeSpacing - eyeWidth), eyeY - eyeHeight * 1.45 + browLift);
+    ctx.moveTo(cx + facing * (eyeSpacing - eyeWidth), eyeY - eyeHeight * 1.45 + browLift);
+    ctx.lineTo(cx + facing * (eyeSpacing + eyeWidth), eyeY - eyeHeight * 1.58);
+    ctx.stroke();
+
+    ctx.strokeStyle = "rgba(117,58,65,.72)";
+    ctx.lineWidth = Math.max(0.7, radius * 0.035);
+    ctx.beginPath();
+    ctx.moveTo(cx + facing * radius * 0.08, cy - radius * 0.02);
+    ctx.quadraticCurveTo(
+      cx + facing * radius * 0.18,
+      cy + radius * 0.18,
+      cx + facing * radius * 0.24,
+      cy + radius * 0.36,
+    );
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(cx - radius * 0.18, cy + radius * 0.54);
+    ctx.quadraticCurveTo(
+      cx,
+      cy + radius * (0.58 + profile.mouthTilt * 0.12),
+      cx + radius * 0.2,
+      cy + radius * (0.52 - profile.mouthTilt * 0.12),
+    );
+    ctx.stroke();
+
+    if (art.eyepatch) {
+      const patchX = cx - facing * eyeSpacing;
+      ctx.strokeStyle = "#0a0e18";
+      ctx.lineWidth = Math.max(1.2, radius * 0.1);
+      ctx.beginPath();
+      ctx.moveTo(cx - facing * radius * 0.92, cy - radius * 0.42);
+      ctx.lineTo(cx + facing * radius * 0.66, cy + radius * 0.08);
+      ctx.stroke();
+      ctx.fillStyle = "#111522";
+      ellipsePath(ctx, patchX, eyeY, eyeWidth * 1.08, eyeHeight * 1.5);
+      ctx.fill();
+      ctx.strokeStyle = "#54627b";
+      ctx.lineWidth = Math.max(0.6, radius * 0.025);
+      ctx.stroke();
+    }
+
+    if (!compact && profile.scar !== "none" && !art.eyepatch) {
+      ctx.strokeStyle = "rgba(154,58,61,.6)";
+      ctx.lineWidth = Math.max(0.7, radius * 0.025);
+      ctx.beginPath();
+      ctx.moveTo(cx + facing * radius * 0.42, cy + radius * 0.02);
+      ctx.lineTo(cx + facing * radius * 0.58, cy + radius * 0.34);
+      ctx.stroke();
+    }
+  }
+
+  function paintAnimeV11HairFront(ctx, cx, cy, radius, art, identity) {
+    if (/helmet|mask/.test(art.headgear) && !art.feminine) return;
+    const hairTone = /white/.test(art.beard) ? "#dce5ed" : "#11172a";
+    const highlight = /white/.test(art.beard) ? "#ffffff" : "#34435e";
+    ctx.fillStyle = hairTone;
+    ctx.strokeStyle = "#090f1f";
+    ctx.lineWidth = Math.max(1, radius * 0.065);
+    const spikes = 5 + identity.hairVariant;
+    ctx.beginPath();
+    ctx.moveTo(cx - radius * 0.82, cy - radius * 0.45);
+    for (let spike = 0; spike <= spikes; spike += 1) {
+      const ratio = spike / spikes;
+      const px = cx - radius * 0.82 + radius * 1.64 * ratio;
+      const length = radius * (0.24 + ((spike + identity.hairVariant) % 3) * 0.12);
+      const py = cy - radius * (0.78 - Math.abs(ratio - 0.5) * 0.28);
+      ctx.lineTo(px, py);
+      ctx.lineTo(
+        px + identity.fringeBias * radius * 0.4,
+        py + length,
+      );
+    }
+    ctx.lineTo(cx + radius * 0.82, cy - radius * 0.45);
+    ctx.quadraticCurveTo(cx, cy - radius * 1.18, cx - radius * 0.82, cy - radius * 0.45);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    ctx.strokeStyle = colorWithAlpha(highlight, 0.7);
+    ctx.lineWidth = Math.max(0.65, radius * 0.025);
+    ctx.beginPath();
+    ctx.moveTo(cx - radius * 0.5, cy - radius * 0.78);
+    ctx.quadraticCurveTo(cx, cy - radius * 1.02, cx + radius * 0.46, cy - radius * 0.72);
+    ctx.stroke();
+  }
+
+  function paintAnimeV11Beard(ctx, cx, cy, radius, art) {
+    if (!art.beard || art.beard === "none") return;
+    const white = /white/.test(art.beard);
+    const wild = /wild|square|mane/.test(art.beard);
+    const long = /long/.test(art.beard);
+    const beardColor = white ? "#e7edf1" : "#171927";
+    const beardShade = white ? "#9eabb9" : "#343444";
+    ctx.fillStyle = beardColor;
+    ctx.strokeStyle = "#101522";
+    ctx.lineWidth = Math.max(0.9, radius * 0.055);
+    if (long || wild) {
+      const beardLength = radius * (long ? 1.55 : wild ? 0.95 : 0.62);
+      ctx.beginPath();
+      ctx.moveTo(cx - radius * 0.54, cy + radius * 0.38);
+      ctx.lineTo(cx - radius * 0.42, cy + radius * 0.82);
+      ctx.lineTo(cx - radius * 0.18, cy + beardLength * 0.88);
+      ctx.lineTo(cx, cy + beardLength);
+      ctx.lineTo(cx + radius * 0.2, cy + beardLength * 0.84);
+      ctx.lineTo(cx + radius * 0.46, cy + radius * 0.76);
+      ctx.lineTo(cx + radius * 0.54, cy + radius * 0.38);
+      ctx.quadraticCurveTo(cx, cy + radius * 0.62, cx - radius * 0.54, cy + radius * 0.38);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      ctx.strokeStyle = beardShade;
+      ctx.lineWidth = Math.max(0.6, radius * 0.026);
+      for (const ratio of [-0.45, -0.16, 0.18, 0.46]) {
+        ctx.beginPath();
+        ctx.moveTo(cx + ratio * radius, cy + radius * 0.58);
+        ctx.lineTo(cx + ratio * radius * 0.58, cy + beardLength * (0.82 + Math.abs(ratio) * 0.16));
+        ctx.stroke();
+      }
+    } else {
+      ctx.strokeStyle = beardColor;
+      ctx.lineWidth = Math.max(1.1, radius * 0.11);
+      ctx.beginPath();
+      ctx.moveTo(cx - radius * 0.32, cy + radius * 0.45);
+      ctx.quadraticCurveTo(cx, cy + radius * 0.66, cx + radius * 0.32, cy + radius * 0.45);
+      ctx.stroke();
+      if (/goatee/.test(art.beard)) {
+        ctx.beginPath();
+        ctx.moveTo(cx, cy + radius * 0.55);
+        ctx.lineTo(cx, cy + radius * 1.12);
+        ctx.stroke();
+      }
+    }
+  }
+
+  function paintAnimeV11Headgear(ctx, cx, cy, radius, art, style, pose, compact) {
+    const gear = String(art.headgear || "");
+    const outline = "#10162a";
+    const metal = portraitSaturationColor(style.secondary, 1.05, 1.02);
+    ctx.save();
+    ctx.strokeStyle = outline;
+    ctx.lineWidth = Math.max(1.1, radius * 0.07);
+    ctx.lineJoin = "round";
+
+    if (/mask/.test(gear)) {
+      ctx.fillStyle = "#ddd3ae";
+      ctx.beginPath();
+      ctx.moveTo(cx - radius * 0.72, cy - radius * 0.68);
+      ctx.lineTo(cx, cy - radius * 1.02);
+      ctx.lineTo(cx + radius * 0.72, cy - radius * 0.68);
+      ctx.lineTo(cx + radius * 0.58, cy + radius * 0.2);
+      ctx.lineTo(cx, cy + radius * 0.46);
+      ctx.lineTo(cx - radius * 0.58, cy + radius * 0.2);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = "#1b2030";
+      ellipsePath(ctx, cx - radius * 0.28, cy - radius * 0.12, radius * 0.15, radius * 0.1);
+      ctx.fill();
+      ellipsePath(ctx, cx + radius * 0.28, cy - radius * 0.12, radius * 0.15, radius * 0.1);
+      ctx.fill();
+    } else if (/helmet|helm/.test(gear)) {
+      const helmet = ctx.createLinearGradient(cx - radius, cy - radius, cx + radius, cy);
+      helmet.addColorStop(0, "#eef4f3");
+      helmet.addColorStop(0.38, metal);
+      helmet.addColorStop(1, portraitShiftColor(style.primary, -0.24));
+      ctx.fillStyle = helmet;
+      ctx.beginPath();
+      ctx.arc(cx, cy - radius * 0.28, radius * 0.82, Math.PI, TAU);
+      ctx.lineTo(cx + radius * 0.78, cy - radius * 0.12);
+      ctx.lineTo(cx - radius * 0.78, cy - radius * 0.12);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = pose.accent;
+      ctx.beginPath();
+      ctx.moveTo(cx, cy - radius * 1.58);
+      ctx.quadraticCurveTo(cx + radius * 0.34, cy - radius * 1.12, cx + radius * 0.12, cy - radius * 0.72);
+      ctx.lineTo(cx - radius * 0.12, cy - radius * 0.72);
+      ctx.quadraticCurveTo(cx - radius * 0.28, cy - radius * 1.18, cx, cy - radius * 1.58);
+      ctx.fill();
+      ctx.stroke();
+      if (/horn|tiger|lion/.test(gear)) {
+        ctx.fillStyle = "#f3d18b";
+        for (const side of [-1, 1]) {
+          ctx.beginPath();
+          ctx.moveTo(cx + side * radius * 0.52, cy - radius * 0.72);
+          ctx.quadraticCurveTo(
+            cx + side * radius * 1.08,
+            cy - radius * 1.18,
+            cx + side * radius * 0.78,
+            cy - radius * 0.36,
+          );
+          ctx.closePath();
+          ctx.fill();
+          ctx.stroke();
+        }
+      }
+    } else if (/crown/.test(gear)) {
+      ctx.fillStyle = metal;
+      ctx.beginPath();
+      ctx.moveTo(cx - radius * 0.68, cy - radius * 0.72);
+      ctx.lineTo(cx - radius * 0.48, cy - radius * 1.22);
+      ctx.lineTo(cx - radius * 0.18, cy - radius * 0.84);
+      ctx.lineTo(cx, cy - radius * 1.48);
+      ctx.lineTo(cx + radius * 0.18, cy - radius * 0.84);
+      ctx.lineTo(cx + radius * 0.48, cy - radius * 1.22);
+      ctx.lineTo(cx + radius * 0.68, cy - radius * 0.72);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = pose.accent;
+      ctx.beginPath();
+      ctx.arc(cx, cy - radius * 0.92, radius * 0.13, 0, TAU);
+      ctx.fill();
+    } else if (/cap/.test(gear)) {
+      ctx.fillStyle = /black/.test(gear) ? "#111424" : portraitShiftColor(style.primary, -0.16);
+      ctx.beginPath();
+      ctx.arc(cx, cy - radius * 0.28, radius * 0.72, Math.PI, TAU);
+      ctx.lineTo(cx + radius * 0.64, cy - radius * 0.1);
+      ctx.lineTo(cx - radius * 0.64, cy - radius * 0.1);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      if (/scholar|soft/.test(gear)) {
+        ctx.beginPath();
+        ctx.moveTo(cx - radius * 0.54, cy - radius * 0.18);
+        ctx.lineTo(cx - radius * 1.18, cy - radius * 0.36);
+        ctx.lineTo(cx - radius * 0.72, cy - radius * 0.02);
+        ctx.moveTo(cx + radius * 0.54, cy - radius * 0.18);
+        ctx.lineTo(cx + radius * 1.18, cy - radius * 0.36);
+        ctx.lineTo(cx + radius * 0.72, cy - radius * 0.02);
+        ctx.stroke();
+      }
+    } else if (/scarf|band/.test(gear)) {
+      ctx.fillStyle = pose.accent;
+      ctx.fillRect(cx - radius * 0.86, cy - radius * 0.72, radius * 1.72, radius * 0.24);
+      ctx.strokeRect(cx - radius * 0.86, cy - radius * 0.72, radius * 1.72, radius * 0.24);
+      if (!compact) {
+        ctx.beginPath();
+        ctx.moveTo(cx + radius * 0.66, cy - radius * 0.56);
+        ctx.quadraticCurveTo(cx + radius * 1.28, cy - radius * 0.2, cx + radius * 1.08, cy + radius * 0.52);
+        ctx.strokeStyle = pose.accent;
+        ctx.lineWidth = Math.max(2, radius * 0.18);
+        ctx.stroke();
+      }
+    } else if (/feather|hairpin/.test(gear)) {
+      ctx.strokeStyle = metal;
+      ctx.lineWidth = Math.max(1.3, radius * 0.08);
+      ctx.beginPath();
+      ctx.moveTo(cx - radius * 0.64, cy - radius * 0.68);
+      ctx.lineTo(cx + radius * 0.7, cy - radius * 0.98);
+      ctx.stroke();
+      ctx.fillStyle = pose.accent;
+      ctx.beginPath();
+      ctx.moveTo(cx + radius * 0.34, cy - radius * 0.9);
+      ctx.quadraticCurveTo(cx + radius * 0.92, cy - radius * 1.48, cx + radius * 0.72, cy - radius * 0.66);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+    } else {
+      ctx.fillStyle = metal;
+      ctx.beginPath();
+      ctx.arc(cx, cy - radius * 0.84, radius * 0.18, 0, TAU);
+      ctx.fill();
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  function paintAnimeV11Weapon(ctx, x, y, width, height, art, style, pose, action, compact) {
+    const weapon = String(art.weapon || "spear");
+    const facing = art.facing || 1;
+    const side = facing > 0 ? 1 : -1;
+    const wx = x + width * (side > 0 ? 0.82 : 0.18);
+    const wy = y + height * 0.6;
+    const unit = width * (compact ? 0.015 : 0.012);
+    const blade = "#f6fbff";
+    const metal = portraitSaturationColor(style.secondary, 0.72, 1.16);
+    ctx.save();
+    ctx.translate(wx, wy);
+    ctx.rotate(side * (0.12 + action.weaponAngle * 0.72));
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    ctx.shadowColor = colorWithAlpha(pose.accent, 0.8);
+    ctx.shadowBlur = width * (compact ? 0.08 : 0.06);
+
+    if (/fan/.test(weapon)) {
+      ctx.fillStyle = /dark/.test(weapon) ? "#24263c" : "#f5eee1";
+      ctx.strokeStyle = pose.accent;
+      ctx.lineWidth = Math.max(1, unit * 0.8);
+      ctx.beginPath();
+      ctx.moveTo(0, height * 0.22);
+      ctx.arc(0, height * 0.22, width * 0.28, Math.PI * 1.12, Math.PI * 1.88);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      for (let rib = -2; rib <= 2; rib += 1) {
+        const angle = -Math.PI / 2 + rib * 0.19;
+        ctx.beginPath();
+        ctx.moveTo(0, height * 0.22);
+        ctx.lineTo(Math.cos(angle) * width * 0.25, height * 0.22 + Math.sin(angle) * width * 0.25);
+        ctx.stroke();
+      }
+    } else if (/bow/.test(weapon)) {
+      ctx.strokeStyle = "#f1c56d";
+      ctx.lineWidth = Math.max(1.4, unit * 1.5);
+      ctx.beginPath();
+      ctx.arc(0, 0, width * 0.27, -Math.PI / 2, Math.PI / 2);
+      ctx.stroke();
+      ctx.strokeStyle = "#f7f3dd";
+      ctx.lineWidth = Math.max(0.7, unit * 0.55);
+      ctx.beginPath();
+      ctx.moveTo(0, -width * 0.27);
+      ctx.lineTo(0, width * 0.27);
+      ctx.stroke();
+      ctx.strokeStyle = pose.accent;
+      ctx.beginPath();
+      ctx.moveTo(-width * 0.34, 0);
+      ctx.lineTo(width * 0.22, 0);
+      ctx.stroke();
+    } else if (/shield/.test(weapon)) {
+      ctx.fillStyle = portraitShiftColor(style.primary, -0.16);
+      ctx.strokeStyle = metal;
+      ctx.lineWidth = Math.max(1.6, unit * 1.7);
+      ctx.beginPath();
+      ctx.arc(0, 0, width * 0.24, 0, TAU);
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = pose.accent;
+      ctx.beginPath();
+      ctx.arc(0, 0, width * 0.075, 0, TAU);
+      ctx.fill();
+      ctx.stroke();
+    } else if (/scroll|book|flute/.test(weapon)) {
+      ctx.strokeStyle = /flute/.test(weapon) ? "#9be78a" : "#f5dfa4";
+      ctx.lineWidth = Math.max(3, unit * 3.4);
+      ctx.beginPath();
+      ctx.moveTo(-width * 0.22, 0);
+      ctx.lineTo(width * 0.2, 0);
+      ctx.stroke();
+      ctx.fillStyle = pose.accent;
+      for (let notch = -2; notch <= 2; notch += 1) {
+        ctx.beginPath();
+        ctx.arc(notch * width * 0.065, 0, Math.max(0.8, unit * 0.7), 0, TAU);
+        ctx.fill();
+      }
+    } else if (/maul|club/.test(weapon)) {
+      ctx.strokeStyle = "#4a342c";
+      ctx.lineWidth = Math.max(2.3, unit * 2.4);
+      ctx.beginPath();
+      ctx.moveTo(0, height * 0.42);
+      ctx.lineTo(0, -height * 0.28);
+      ctx.stroke();
+      ctx.fillStyle = "#59606d";
+      ctx.strokeStyle = metal;
+      ctx.lineWidth = Math.max(1.1, unit);
+      roundedRect(ctx, -width * 0.105, -height * 0.4, width * 0.21, height * 0.19, width * 0.025);
+      ctx.fill();
+      ctx.stroke();
+    } else {
+      const spear = /spear|lance|halberd/.test(weapon);
+      const twin = /twin/.test(weapon);
+      const drawBlade = (offset, mirror) => {
+        ctx.save();
+        ctx.translate(offset, 0);
+        ctx.scale(mirror, 1);
+        ctx.strokeStyle = "#49372f";
+        ctx.lineWidth = Math.max(1.6, unit * 1.65);
+        ctx.beginPath();
+        ctx.moveTo(0, height * 0.5);
+        ctx.lineTo(0, spear ? -height * 0.5 : -height * 0.34);
+        ctx.stroke();
+        ctx.fillStyle = blade;
+        ctx.strokeStyle = pose.accent;
+        ctx.lineWidth = Math.max(0.9, unit * 0.8);
+        ctx.beginPath();
+        ctx.moveTo(0, spear ? -height * 0.66 : -height * 0.48);
+        ctx.lineTo(width * (spear ? 0.07 : 0.11), -height * 0.43);
+        ctx.lineTo(0, -height * 0.36);
+        ctx.lineTo(-width * (spear ? 0.045 : 0.08), -height * 0.43);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+        if (/crescent|halberd|fangtian/.test(weapon)) {
+          ctx.beginPath();
+          ctx.moveTo(0, -height * 0.48);
+          ctx.quadraticCurveTo(width * 0.22, -height * 0.43, width * 0.16, -height * 0.25);
+          ctx.quadraticCurveTo(width * 0.02, -height * 0.3, 0, -height * 0.38);
+          ctx.fill();
+          ctx.stroke();
+        }
+        ctx.restore();
+      };
+      drawBlade(twin ? -width * 0.13 : 0, 1);
+      if (twin) drawBlade(width * 0.13, -1);
+    }
+    ctx.restore();
+  }
+
+  function paintAnimePortraitV11(ctx, x, y, width, height, card, compact) {
+    const art = portraitArchetype(card);
+    const style = getFactionStyle(card);
+    const pose = portraitPaintProfile(art);
+    const action = portraitActionProfile(art);
+    const identity = animeV11IdentityProfile(card, art);
+    const seed = hashString(
+      `${getCardValue(card, "id", "")}|${art.archetype}|${ANIME_CEL_STYLE_VERSION}`,
+    );
+    const facing = art.facing || 1;
+    const cx = x + width * clamp(pose.headX + action.headDX, 0.34, 0.58);
+    const cy = y + height * clamp(pose.headY + action.headDY, 0.28, 0.42);
+    const radius = width
+      * (compact ? 0.205 : 0.185)
+      * clamp(pose.scale * action.camera, 0.94, 1.2);
+
+    ctx.save();
+    roundedRect(ctx, x, y, width, height, Math.max(4, width * 0.05));
+    ctx.clip();
+    paintAnimeV11Backdrop(ctx, x, y, width, height, card, art, style, pose, seed, compact);
+
+    const aura = ctx.createRadialGradient(
+      cx + facing * radius * 0.2,
+      cy - radius * 0.16,
+      radius * 0.08,
+      cx,
+      cy,
+      radius * 2.5,
+    );
+    aura.addColorStop(0, colorWithAlpha("#ffffff", compact ? 0.26 : 0.32));
+    aura.addColorStop(0.3, colorWithAlpha(pose.accent, compact ? 0.42 : 0.36));
+    aura.addColorStop(1, colorWithAlpha(pose.accent, 0));
+    ctx.fillStyle = aura;
+    ctx.fillRect(x, y, width, height);
+
+    paintAnimeV11Body(ctx, x, y, width, height, art, style, pose, action, cx, compact);
+    paintAnimeV11HairBack(ctx, cx, cy, radius, art, identity);
+    paintAnimeV11Face(ctx, cx, cy, radius, card, art, style, pose, identity, compact);
+    paintAnimeV11HairFront(ctx, cx, cy, radius, art, identity);
+    paintAnimeV11Beard(ctx, cx, cy, radius, art);
+    paintAnimeV11Headgear(ctx, cx, cy, radius, art, style, pose, compact);
+    paintAnimeV11Weapon(ctx, x, y, width, height, art, style, pose, action, compact);
+
+    // Foreground colour slash makes each portrait read like a captured action
+    // frame rather than a static historical bust.
+    ctx.save();
+    ctx.globalCompositeOperation = "lighter";
+    ctx.strokeStyle = colorWithAlpha(pose.accent, compact ? 0.72 : 0.62);
+    ctx.lineCap = "round";
+    ctx.lineWidth = Math.max(1.2, width * 0.018);
+    ctx.beginPath();
+    if (facing > 0) {
+      ctx.moveTo(x - width * 0.04, y + height * 0.92);
+      ctx.lineTo(x + width * 0.42, y + height * 0.72);
+    } else {
+      ctx.moveTo(x + width * 1.04, y + height * 0.92);
+      ctx.lineTo(x + width * 0.58, y + height * 0.72);
+    }
+    ctx.stroke();
+    ctx.restore();
+
+    const vignette = ctx.createLinearGradient(x, y, x, y + height);
+    vignette.addColorStop(0, "rgba(5,9,20,0)");
+    vignette.addColorStop(0.72, "rgba(5,9,20,.05)");
+    vignette.addColorStop(1, "rgba(5,9,20,.46)");
+    ctx.fillStyle = vignette;
+    ctx.fillRect(x, y, width, height);
+    ctx.restore();
+  }
+
   function paintPortraitUncached(ctx, x, y, width, height, card, compact) {
     const style = getFactionStyle(card);
     const art = portraitArchetype(card);
     if (art.archetype === "wandering-general") {
       if (compact) drawPortraitLegacy(ctx, x, y, width, height, card, true);
       else drawPortraitLegacyLayered(ctx, x, y, width, height, card, false);
+      return;
+    }
+    const animeV11Enabled = ANIME_CEL_STYLE_VERSION === "anime-cel-v11";
+    if (animeV11Enabled) {
+      paintAnimePortraitV11(ctx, x, y, width, height, card, compact);
       return;
     }
     const pose = portraitPaintProfile(art);
@@ -10961,7 +11857,7 @@
     backdrop.addColorStop(1, "#100e0c");
     galleryCtx.fillStyle = backdrop;
     galleryCtx.fillRect(0, 0, galleryWidth, galleryHeight);
-    drawCenteredText(galleryCtx, `${roster.length}인 애니 셀 초상 검수 · 밝은 마법 판타지 + 액션 컷`, galleryWidth / 2, 27, {
+    drawCenteredText(galleryCtx, `${roster.length}인 애니 셀 v11 · 판타지 마법광 + 액션 컷`, galleryWidth / 2, 27, {
       font: `900 23px ${SYSTEM_FONT}`,
       color: "#ffe5a2",
       stroke: "#1b0e08",
@@ -11042,6 +11938,7 @@
     commanderPresentationCount: Object.keys(COMMANDER_PRESENTATION).length,
     art8FigureOverrideCount: Object.keys(ART8_FIGURE_PROFILE_OVERRIDES).length,
     materialEdgeResponseCount: Object.keys(MATERIAL_EDGE_RESPONSES).length,
+    animeArtVersion: ANIME_CEL_STYLE_VERSION,
     testHooks: {
       semanticTextLines,
       cardTacticalLabel,
@@ -11078,6 +11975,8 @@
       portraitCacheSnapshot,
       portraitArchetype,
       paintPortraitUncached,
+      animeV11IdentityProfile,
+      paintAnimePortraitV11,
       legacyPortraitPainters: {
         paintFacialDepthV8,
         paintAnatomicalBrushworkV7,
