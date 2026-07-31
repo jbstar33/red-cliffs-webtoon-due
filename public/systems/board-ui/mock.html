@@ -1,0 +1,254 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>적벽전설 · Board UI 독립 목업</title>
+  <style>
+    html, body { width: 100%; min-height: 100%; margin: 0; background: #061313; }
+    main { width: 100%; height: 100vh; overflow: hidden; }
+    #gallery { display: none; width: 1320px; margin: 0 auto; padding: 16px 0 40px; }
+    #gallery canvas { display: block; width: 1320px; height: auto; margin: 0 auto; box-shadow: 0 18px 60px rgba(0,0,0,.6); }
+    body.gallery-mode { overflow: auto; }
+    body.gallery-mode main { display: none; }
+    body.gallery-mode #gallery { display: block; }
+  </style>
+</head>
+<body>
+  <main id="game"><canvas id="board"></canvas></main>
+  <section id="gallery" aria-label="27인 초상 검수 갤러리">
+    <canvas id="portrait-gallery"></canvas>
+  </section>
+  <script src="./index.js"></script>
+  <script>
+    const roster = [
+      ["shu_liu_bei", "유비", "현덕", "촉", "군주"],
+      ["shu_guan_yu", "관우", "운장", "촉", "맹장"],
+      ["shu_zhang_fei", "장비", "익덕", "촉", "맹장"],
+      ["shu_zhao_yun", "조자룡", "자룡", "촉", "호위"],
+      ["shu_zhuge_liang", "제갈량", "공명", "촉", "책사"],
+      ["shu_huang_zhong", "황충", "한승", "촉", "궁장"],
+      ["shu_ma_chao", "마초", "맹기", "촉", "서량 선봉"],
+      ["wei_cao_cao", "조조", "맹덕", "위", "군주"],
+      ["wei_sima_yi", "사마의", "중달", "위", "책사"],
+      ["wei_xiahou_dun", "하후돈", "원양", "위", "호위"],
+      ["wei_dian_wei", "전위", "악래", "위", "맹장"],
+      ["wei_zhang_liao", "장료", "문원", "위", "기병"],
+      ["wei_guo_jia", "곽가", "봉효", "위", "책사"],
+      ["wei_xu_zhu", "허저", "중강", "위", "호치"],
+      ["wu_sun_quan", "손권", "중모", "오", "군주"],
+      ["wu_zhou_yu", "주유", "공근", "오", "도독"],
+      ["wu_gan_ning", "감녕", "흥패", "오", "수적"],
+      ["wu_lu_meng", "여몽", "자명", "오", "도독"],
+      ["wu_huang_gai", "황개", "공복", "오", "노장"],
+      ["wu_sun_shangxiang", "손상향", "궁요희", "오", "궁장"],
+      ["wu_lu_xun", "육손", "백언", "오", "도독"],
+      ["nanman_meng_huo", "맹획", "", "남만", "남만왕"],
+      ["nanman_zhu_rong", "축융", "", "남만", "화신 장수"],
+      ["nanman_wu_tu_gu", "올돌골", "", "남만", "등갑왕"],
+      ["nanman_mu_lu", "목록대왕", "", "남만", "수왕"],
+      ["nanman_a_hui_nan", "아회남", "", "남만", "부족 전령"],
+      ["qun_lu_bu", "여포", "봉선", "군웅", "비장"],
+    ];
+    const fullTexts = {
+      shu_liu_bei: "출전: 아군 영웅의 체력을 2 회복합니다.",
+      shu_guan_yu: "돌진",
+      shu_zhang_fei: "수호",
+      shu_zhao_yun: "돌진, 방패",
+      shu_zhuge_liang: "출전: 카드를 2장 뽑습니다. 출전: 내 손의 무작위 카드 하나의 비용을 1 감소시킵니다.",
+      shu_huang_zhong: "출전: 적 대상 하나에게 피해를 2 줍니다.",
+      shu_ma_chao: "돌진",
+      wei_cao_cao: "출전: 다른 모든 아군 장수에게 공격력 +1과 체력 +1을 부여합니다.",
+      wei_sima_yi: "출전: 무작위 적 하나에게 피해를 2 줍니다. 출전: 방어도를 2 얻습니다.",
+      wei_xiahou_dun: "수호",
+      wei_dian_wei: "수호. 죽음: 무작위 적 하나에게 피해를 2 줍니다.",
+      wei_zhang_liao: "돌진",
+      wei_guo_jia: "죽음: 카드를 1장 뽑습니다.",
+      wei_xu_zhu: "수호. 출전: 방어도를 1 얻습니다.",
+      wu_sun_quan: "출전: 강동 수군을 2명 소환합니다.",
+      wu_zhou_yu: "출전: 모든 적에게 피해를 2 줍니다.",
+      wu_gan_ning: "돌진",
+      wu_lu_meng: "출전: 공격을 마친 무작위 아군 장수 하나를 다시 준비시킵니다.",
+      wu_huang_gai: "죽음: 적 영웅에게 피해를 1 줍니다.",
+      wu_sun_shangxiang: "출전: 적 대상 하나에게 피해를 1 줍니다.",
+      wu_lu_xun: "출전: 모든 적 장수에게 피해를 1 줍니다. 카드를 1장 뽑습니다.",
+      nanman_meng_huo: "유언: 방어도를 3 얻습니다.",
+      nanman_zhu_rong: "출전: 선택한 적 대상 하나에게 피해를 2 줍니다.",
+      nanman_wu_tu_gu: "수호, 방패",
+      nanman_mu_lu: "출전: 남만 야수 둘을 소환합니다.",
+      nanman_a_hui_nan: "출전: 양옆 아군 장수에게 공격력 +1을 부여합니다.",
+      qun_lu_bu: "돌진",
+    };
+    const keywordSets = {
+      shu_guan_yu: ["돌진"],
+      shu_zhang_fei: ["수호"],
+      shu_zhao_yun: ["돌진", "방패"],
+      shu_ma_chao: ["돌진"],
+      wei_xiahou_dun: ["수호"],
+      wei_dian_wei: ["수호"],
+      wei_zhang_liao: ["돌진"],
+      wei_xu_zhu: ["수호"],
+      wu_gan_ning: ["돌진"],
+      nanman_wu_tu_gu: ["수호", "방패"],
+      qun_lu_bu: ["돌진"],
+    };
+    const tacticalIdentities = {
+      shu_liu_bei: "초반 회복 선봉",
+      shu_guan_yu: "중후반 돌파 장수",
+      shu_zhang_fei: "후반 수호벽",
+      shu_zhao_yun: "방패 돌진 교환수",
+      shu_zhuge_liang: "손패 설계 책사",
+      shu_huang_zhong: "선택 사격 명궁",
+      shu_ma_chao: "서량 돌진 선봉",
+      wei_cao_cao: "전군 강화 군주",
+      wei_sima_yi: "공수 전환 책사",
+      wei_xiahou_dun: "초반 수호병",
+      wei_dian_wei: "보복하는 호위",
+      wei_zhang_liao: "방어 전환 기습수",
+      wei_guo_jia: "유언 순환 책사",
+      wei_xu_zhu: "방어도를 쌓는 수호벽",
+      wu_sun_quan: "수군 전개 군주",
+      wu_zhou_yu: "광역 소각 도독",
+      wu_gan_ning: "저비용 유리대포",
+      wu_lu_meng: "재공격 지휘관",
+      wu_huang_gai: "영웅 압박 결사대",
+      wu_sun_shangxiang: "저비용 정밀 사격",
+      wu_lu_xun: "광역 압박 순환 도독",
+      nanman_meng_huo: "유언 방어 남만왕",
+      nanman_zhu_rong: "선택 피해 비도수",
+      nanman_wu_tu_gu: "이중 보호 등갑벽",
+      nanman_mu_lu: "야수 전개 소환수",
+      nanman_a_hui_nan: "인접 강화 전령",
+      qun_lu_bu: "최종 돌진 병기",
+    };
+    function card(index) {
+      const general = roster[index % roster.length];
+      return {
+        id: general[0],
+        instanceId: `mock-${index}-${Math.random()}`,
+        name: general[1],
+        courtesy: general[2],
+        faction: general[3],
+        cost: (index % 6) + 1,
+        attack: (index % 5) + 1,
+        health: (index % 6) + 2,
+        currentAttack: (index % 5) + 1,
+        currentHealth: (index % 6) + 2,
+        maxHealth: (index % 6) + 2,
+        role: general[4],
+        text: fullTexts[general[0]],
+        summaryText: fullTexts[general[0]].split(".")[0],
+        flavor: `${general[1]}의 이름은 전장의 북소리보다 먼저 적진에 닿았다.`,
+        tactics: { identity: tacticalIdentities[general[0]] },
+        target: index === 1 ? "enemy" : "none",
+        abilities: index === 1 ? [{ trigger: "onPlay", op: "damage_target", amount: 3 }] : [],
+        keywords: keywordSets[general[0]] || [],
+        guard: (keywordSets[general[0]] || []).includes("수호"),
+        shield: (keywordSets[general[0]] || []).includes("방패"),
+        canAttack: true,
+        attacksLeft: 1,
+        portrait: { motif: general[4], weapon: "장창", temperament: "굳건함" },
+      };
+    }
+    const mockParams = new URLSearchParams(location.search);
+    if (mockParams.get("gallery") === "1") {
+      document.body.classList.add("gallery-mode");
+      TK.modules.boardUI.renderPortraitGallery(
+        document.getElementById("portrait-gallery"),
+        roster.map((_, index) => card(index)),
+      );
+    }
+    let state = {
+      phase: "playing",
+      turn: "player",
+      turnNumber: 5,
+      winner: null,
+      reason: "",
+      heroes: {
+        player: { health: 24, maxHealth: 30, armor: 3, mana: 7, maxMana: 7, fatigue: 0 },
+        ai: { health: 18, maxHealth: 30, armor: 0, mana: 6, maxMana: 6, fatigue: 0 },
+      },
+      commanders: {
+        player: { id: "caocao", faction: "wei", powerUsedThisTurn: false },
+        ai: { id: "liubei", faction: "shu", reflectCharges: 2 },
+      },
+      hands: { player: [card(10), card(11), card(12), card(13), card(14), card(15), card(16), card(17), card(18)], ai: [card(0), card(1), card(2), card(3)] },
+      decks: { player: Array(12).fill(0), ai: Array(9).fill(0) },
+      boards: {
+        player: [card(5), card(6), card(7), card(8), card(9)],
+        ai: [
+          Object.assign(card(0), { canAttack: false }),
+          card(1),
+          card(2),
+          Object.assign(card(3), { shield: false }),
+          card(4),
+        ],
+      },
+      log: [
+        { id: 1, actor: "player", message: "조자룡을 출전시켰습니다." },
+        { id: 2, actor: "ai", message: "감녕이 수호 태세를 취합니다." },
+        { id: 3, actor: "player", message: "카드를 한 장 뽑았습니다." },
+        { id: 4, type: "action:invalid", actor: "player", message: "insufficient_mana", data: { reason: "insufficient_mana" } },
+      ],
+      revision: 1,
+    };
+    const mockHandCount = Number(mockParams.get("hand"));
+    if (mockHandCount === 1 || mockHandCount === 2) {
+      state.hands.player = state.hands.player.slice(0, mockHandCount);
+    }
+    if (mockParams.get("scenario") === "defeat") {
+      state.phase = "ended";
+      state.winner = "ai";
+      state.reason = "hero_defeated";
+    }
+    const ui = TK.modules.boardUI.createBoardUI({
+      root: document.getElementById("game"),
+      canvas: document.getElementById("board"),
+      getState: () => state,
+      requestAudioUnlock() {},
+      dispatch(action) {
+        if (action.type === "PLAY_CARD") {
+          const played = state.hands.player.splice(action.handIndex, 1)[0];
+          if (played && state.boards.player.length < 5) {
+            state.heroes.player.mana -= played.cost;
+            state.boards.player.push(Object.assign(played, { canAttack: played.keywords.includes("돌진") }));
+            state.log.push({ id: Date.now(), actor: "player", message: `${played.name} 출전!` });
+            ui.handleEvent("card:play", { message: `${played.name}이 전장에 나섰습니다.` });
+          }
+        } else if (action.type === "ATTACK") {
+          const attacker = state.boards.player[action.attackerIndex];
+          attacker.canAttack = false;
+          state.log.push({ id: Date.now(), actor: "player", message: `${attacker.name}이 공격했습니다.` });
+          ui.handleEvent("attack:hit", { target: action.target, amount: attacker.currentAttack });
+        } else if (action.type === "END_TURN") {
+          state.turn = "ai";
+          ui.setThinking(true);
+          setTimeout(() => {
+            state.turn = "player";
+            state.turnNumber += 1;
+            state.heroes.player.maxMana = Math.min(10, state.heroes.player.maxMana + 1);
+            state.heroes.player.mana = state.heroes.player.maxMana;
+            state.boards.player.forEach((minion) => { minion.canAttack = true; });
+            state.revision += 1;
+            ui.setThinking(false);
+            ui.handleEvent("turn:start", { side: "player" });
+          }, 1100);
+        } else if (action.type === "CONCEDE") {
+          state.phase = "ended";
+          state.winner = "ai";
+          state.reason = "깃발을 거두고 훗날을 기약했습니다.";
+          state.revision += 1;
+        } else if (action.type === "RESTART") {
+          location.reload();
+        }
+        state.revision += 1;
+        ui.render(state);
+      },
+    });
+    ui.handleEvent("turn:start", { side: "player" });
+    if (mockParams.get("scenario") === "invalid") {
+      ui.handleEvent("action:invalid", { actor: "player", reason: "insufficient_mana" });
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>삼국지 카드전 — FX 검수 무대</title>
+  <style>
+    :root { color-scheme: dark; font-family: "Malgun Gothic", sans-serif; }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; background: #090b0d; color: #eee6d2; display: grid; place-items: center; }
+    main { width: min(1180px, 100vw); padding: 16px; }
+    header { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 12px; }
+    h1 { margin: 0; font: 800 20px Georgia, "Malgun Gothic", serif; letter-spacing: .04em; }
+    p { margin: 4px 0 0; color: #aaa698; font-size: 13px; }
+    .stage { position: relative; aspect-ratio: 16 / 9; overflow: hidden; border: 1px solid #62523a; border-radius: 18px;
+      background: radial-gradient(circle at 50% 50%, #233026, #111713 52%, #090b0d); box-shadow: 0 28px 80px #000a; }
+    canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+    .controls { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 12px; }
+    button { border: 1px solid #67583d; border-radius: 999px; background: #181b1c; color: #eee4ca; padding: 8px 13px;
+      font: 700 12px inherit; cursor: pointer; }
+    button:hover, button:focus-visible { border-color: #e3bd63; color: #fff3bd; outline: none; }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <div>
+      <h1>손맛 타이밍 검수 무대</h1>
+      <p>예고 → 충돌 → 잔향의 순서와 효과별 색·문양을 한 화면에서 확인합니다.</p>
+    </div>
+  </header>
+  <div class="stage">
+    <canvas id="board" width="1365" height="768" aria-hidden="true"></canvas>
+    <canvas id="fx" width="1365" height="768" aria-label="전투 효과 검수 캔버스"></canvas>
+  </div>
+  <div class="controls" id="controls"></div>
+</main>
+<script src="./index.js"></script>
+<script>
+  (() => {
+    "use strict";
+    const board = document.querySelector("#board");
+    const overlay = document.querySelector("#fx");
+    const b = board.getContext("2d");
+    const x = overlay.getContext("2d");
+    const anchors = {
+      attacker: { x: 320, y: 548 },
+      target: { x: 1010, y: 224 },
+      minion: { x: 515, y: 548 },
+      hero: { x: 682, y: 674 },
+      card: { x: 1035, y: 650 }
+    };
+    const fx = TK.modules.fxAnimation.createFX({
+      canvas: overlay,
+      getAnchor(role, detail) {
+        const side = detail && (detail.side || detail.actor) || "player";
+        if (role && typeof role === "object") {
+          if (role.instanceId === "discount-preview") return anchors.card;
+          if (role.zone === "hero") {
+            return role.side === "ai" ? { x: 682, y: 94 } : anchors.hero;
+          }
+          if (role.zone === "hand") {
+            return role.side === "ai" ? { x: 1035, y: 118 } : anchors.card;
+          }
+          if (role.zone === "board") {
+            if (role.side === "ai") return anchors.target;
+            return role.index === 1 ? anchors.minion : anchors.attacker;
+          }
+        }
+        if (role === "source-fizzle") return anchors.minion;
+        if (role === "hero") return side === "ai" ? { x: 682, y: 94 } : anchors.hero;
+        if (role === "card") return side === "ai" ? { x: 1035, y: 118 } : anchors.card;
+        if (role === "minion") return side === "ai" ? anchors.target : anchors.minion;
+        return anchors[role] || null;
+      }
+    });
+
+    function card(cx, cy, color, title) {
+      b.save();
+      b.translate(cx, cy);
+      b.fillStyle = "#15191a";
+      b.strokeStyle = color;
+      b.lineWidth = 5;
+      b.beginPath();
+      b.roundRect(-62, -79, 124, 158, 22);
+      b.fill();
+      b.stroke();
+      const glow = b.createRadialGradient(0, -18, 2, 0, -18, 52);
+      glow.addColorStop(0, color + "88");
+      glow.addColorStop(1, color + "00");
+      b.fillStyle = glow;
+      b.beginPath();
+      b.arc(0, -18, 52, 0, Math.PI * 2);
+      b.fill();
+      b.fillStyle = "#f3ead3";
+      b.textAlign = "center";
+      b.font = "800 18px 'Malgun Gothic'";
+      b.fillText(title, 0, 54);
+      b.restore();
+    }
+    function paintBoard() {
+      b.clearRect(0, 0, board.width, board.height);
+      const g = b.createLinearGradient(0, 0, 0, board.height);
+      g.addColorStop(0, "#18211f");
+      g.addColorStop(.5, "#28352c");
+      g.addColorStop(1, "#151b18");
+      b.fillStyle = g;
+      b.fillRect(0, 0, board.width, board.height);
+      b.strokeStyle = "#8e75454d";
+      b.lineWidth = 2;
+      b.beginPath();
+      b.moveTo(80, 384);
+      b.lineTo(1285, 384);
+      b.stroke();
+      card(anchors.attacker.x, anchors.attacker.y, "#5fd6bd", "관우");
+      card(anchors.target.x, anchors.target.y, "#f06a55", "하후돈");
+      card(anchors.minion.x, anchors.minion.y, "#e3bd63", "제갈량");
+      b.fillStyle = "#0b0d0eaa";
+      b.beginPath();
+      b.arc(anchors.hero.x, anchors.hero.y, 46, 0, Math.PI * 2);
+      b.fill();
+      b.strokeStyle = "#d3b45f";
+      b.lineWidth = 4;
+      b.stroke();
+    }
+
+    const actions = [
+      ["출전", () => fx.handleEvent("card:play", { actor: "player", card: { name: "제갈량" } })],
+      ["대상 지정", () => fx.handleEvent("target:selected", { actor: "player", target: { side: "ai", zone: "board", index: 0 } })],
+      ["공격 전체", () => {
+        const detail = { actor: "player", attacker: { side: "player" }, target: { side: "ai" } };
+        fx.handleEvent("attack:start", detail);
+        fx.handleEvent("minion:damage", { amount: 6, source: { side: "player", op: "attack" }, target: detail.target });
+        fx.handleEvent("attack:hit", detail);
+      }],
+      ["방패 파괴", () => fx.handleEvent("minion:damage", { amount: 0, shieldBroken: true, source: { op: "attack" } })],
+      ["수호", () => fx.handleEvent("guard:block", { target: { side: "ai" } })],
+      ["치유", () => fx.handleEvent("effect:trigger", { op: "heal_friendly_hero", amount: 3, actor: "player", source: "heal-preview", result: { success: true, actualHealing: 2 } })],
+      ["방어도", () => fx.handleEvent("effect:trigger", { op: "gain_armor", amount: 3, actor: "player", source: "armor-preview", result: { success: true, actualArmorGained: 2 } })],
+      ["강화", () => fx.handleEvent("effect:trigger", { op: "buff_all_allies", amount: 2, actor: "player", source: "buff-preview", result: { success: true, affectedTargets: [{ zone: "board", side: "player", index: 0 }, { zone: "board", side: "player", index: 1 }] } })],
+      ["계략", () => fx.handleEvent("effect:trigger", { op: "copy_enemy" })],
+      ["드로우", () => fx.handleEvent("effect:trigger", { op: "draw", amount: 2, actor: "player", source: "draw-preview", result: { success: true, actualDrawCount: 1 } })],
+      ["소환", () => fx.handleEvent("effect:trigger", { op: "summon_token", amount: 2, actor: "player", source: "summon-preview", result: { success: true, actualSummonCount: 1 } })],
+      ["비용 감소", () => fx.handleEvent("effect:trigger", { op: "reduce_random_hand_cost", amount: 3, actor: "player", source: "discount-source", target: { zone: "hand", side: "player", instanceId: "discount-preview" }, result: { success: true, discountedTarget: { instanceId: "discount-preview", costBefore: 9, costAfter: 6 } } })],
+      ["재공격", () => fx.handleEvent("effect:trigger", { op: "ready_random_friendly", actor: "player", source: "ready-source", target: { zone: "board", side: "player", index: 0 }, result: { success: true, readiedTarget: { instanceId: "ready-preview" } } })],
+      ["불발", () => fx.handleEvent("effect:trigger", { op: "ready_random_friendly", actor: "player", source: "source-fizzle", result: { success: false, fizzled: true, reason: "target_missing" } })],
+      ["방패 차단", () => fx.handleEvent("effect:trigger", { op: "damage_target", amount: 2, actor: "player", source: "shield-preview", target: { zone: "board", side: "ai", index: 0 }, result: { success: true, blockedByShield: true, actualDamage: 0 } })],
+      ["조조 회복", () => fx.handleEvent("commander:power", { actor: "player", commanderId: "caocao", powerId: "caocao_recovery", target: { zone: "hero", side: "player" }, result: { actualHealing: 1 } })],
+      ["유비 반사", () => fx.handleEvent("commander:reflect", { actor: "player", commanderId: "liubei", powerId: "liubei_reflection", attacker: { zone: "board", side: "ai", index: 0 }, target: { zone: "board", side: "ai", index: 0 }, chargesBefore: 2, chargesAfter: 1, result: { actualDamage: 1 } })],
+      ["손권 수공", () => fx.handleEvent("commander:power", { actor: "player", commanderId: "sunquan", powerId: "sunquan_flood", target: { zone: "characters", side: "ai", all: true }, result: { actualDamage: 2, affectedTargets: [{ target: { zone: "hero", side: "ai" }, actualDamage: 1 }, { target: { zone: "board", side: "ai", index: 0 }, actualDamage: 1 }] } })],
+      ["유목 봉쇄", () => fx.handleEvent("commander:lock", { actor: "player", commanderId: "nomad", powerId: "nomad_lock", target: { zone: "board", side: "ai", index: 0 }, status: "pending" })],
+      ["카드 이동", () => fx.handleEvent("card:draw", { actor: "player" })],
+      ["사망", () => fx.handleEvent("minion:death", { name: "하후돈" })],
+      ["승리", () => fx.handleEvent("game:end", { winner: "player" })],
+      ["패배", () => fx.handleEvent("game:end", { winner: "ai" })]
+    ];
+    const controls = document.querySelector("#controls");
+    actions.forEach(([label, action]) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.textContent = label;
+      button.addEventListener("click", action);
+      controls.append(button);
+    });
+    paintBoard();
+    let last = performance.now();
+    function frame(now) {
+      const dt = Math.min(.05, (now - last) / 1000);
+      last = now;
+      fx.update(dt);
+      x.clearRect(0, 0, overlay.width, overlay.height);
+      fx.render(x);
+      requestAnimationFrame(frame);
+    }
+    requestAnimationFrame(frame);
+  })();
+</script>
+</body>
+</html>
