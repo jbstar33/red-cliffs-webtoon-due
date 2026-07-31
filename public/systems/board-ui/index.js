@@ -5938,12 +5938,185 @@
   const PORTRAIT_SURFACE_CACHE = new Map();
   const PORTRAIT_SURFACE_CACHE_LIMIT = 144;
   const portraitCacheMetrics = { hits: 0, misses: 0, paints: 0, evictions: 0 };
+  const ORIGINAL_CARD_ART_VERSION = "original-webtoon-v1-20260731";
+  const ORIGINAL_CARD_ART_IDS = new Set([
+    "shu_liu_bei",
+    "shu_guan_yu",
+    "shu_zhang_fei",
+    "shu_zhao_yun",
+    "shu_zhuge_liang",
+    "shu_huang_zhong",
+    "shu_ma_chao",
+    "wei_cao_cao",
+    "wei_sima_yi",
+    "wei_xiahou_dun",
+    "wei_dian_wei",
+    "wei_zhang_liao",
+    "wei_guo_jia",
+    "wei_xu_zhu",
+    "wu_sun_quan",
+    "wu_zhou_yu",
+    "wu_gan_ning",
+    "wu_lu_meng",
+    "wu_huang_gai",
+    "wu_sun_shangxiang",
+    "wu_lu_xun",
+    "nanman_meng_huo",
+    "nanman_zhu_rong",
+    "nanman_wu_tu_gu",
+    "nanman_mu_lu",
+    "nanman_a_hui_nan",
+    "qun_lu_bu",
+  ]);
+  const ORIGINAL_CARD_ART_CACHE = new Map();
+  const ORIGINAL_CARD_ART_REFRESHERS = new Set();
+  const originalCardArtMetrics = {
+    requested: 0,
+    loaded: 0,
+    failed: 0,
+    draws: 0,
+  };
   const PORTRAIT_SURFACE_PROFILES = Object.freeze({
     HAND: Object.freeze({ width: 96, height: 66.4, rasterScale: 1.75 }),
     BOARD: Object.freeze({ width: 103, height: 86, rasterScale: 1.75 }),
     DETAIL: Object.freeze({ width: 131, height: 117, rasterScale: 2 }),
     GALLERY: Object.freeze({ width: 250, height: 126, rasterScale: 2 }),
   });
+
+  function originalCardArtSource(card) {
+    const id = String(getCardValue(card, "id", ""));
+    if (!ORIGINAL_CARD_ART_IDS.has(id)) return "";
+    return `/art/cards/${id}.jpg?v=${ORIGINAL_CARD_ART_VERSION}`;
+  }
+
+  function originalCardArtSnapshot() {
+    return {
+      ...originalCardArtMetrics,
+      size: ORIGINAL_CARD_ART_CACHE.size,
+      expected: ORIGINAL_CARD_ART_IDS.size,
+      version: ORIGINAL_CARD_ART_VERSION,
+    };
+  }
+
+  function notifyOriginalCardArtReady() {
+    ORIGINAL_CARD_ART_REFRESHERS.forEach((refresh) => {
+      try {
+        refresh();
+      } catch {
+        // A destroyed board can disappear between image decode and this callback.
+      }
+    });
+  }
+
+  function requestOriginalCardArt(card) {
+    const source = originalCardArtSource(card);
+    if (!source || typeof global.Image !== "function") return null;
+    const cached = ORIGINAL_CARD_ART_CACHE.get(source);
+    if (cached) return cached;
+    const image = new global.Image();
+    const entry = { source, image, status: "loading" };
+    ORIGINAL_CARD_ART_CACHE.set(source, entry);
+    originalCardArtMetrics.requested += 1;
+    image.decoding = "async";
+    image.onload = () => {
+      entry.status = "ready";
+      originalCardArtMetrics.loaded += 1;
+      notifyOriginalCardArtReady();
+    };
+    image.onerror = () => {
+      entry.status = "failed";
+      originalCardArtMetrics.failed += 1;
+      notifyOriginalCardArtReady();
+    };
+    image.src = source;
+    return entry;
+  }
+
+  function originalCardArtFocalPoint(card) {
+    const id = String(getCardValue(card, "id", ""));
+    if (["wei_dian_wei", "wei_xu_zhu", "nanman_wu_tu_gu"].includes(id)) {
+      return { x: 0.5, y: 0.34 };
+    }
+    if (["shu_huang_zhong", "wei_guo_jia", "wu_lu_xun"].includes(id)) {
+      return { x: 0.5, y: 0.31 };
+    }
+    return { x: 0.5, y: 0.28 };
+  }
+
+  function drawOriginalCardArt(ctx, x, y, width, height, card, compact) {
+    const entry = requestOriginalCardArt(card);
+    const image = entry && entry.image;
+    const imageWidth = Number(image && (image.naturalWidth || image.width)) || 0;
+    const imageHeight = Number(image && (image.naturalHeight || image.height)) || 0;
+    if (!entry || entry.status !== "ready" || !imageWidth || !imageHeight) return false;
+
+    const destinationAspect = width / Math.max(1, height);
+    const sourceAspect = imageWidth / imageHeight;
+    const focal = originalCardArtFocalPoint(card);
+    let sourceX = 0;
+    let sourceY = 0;
+    let sourceWidth = imageWidth;
+    let sourceHeight = imageHeight;
+    if (destinationAspect > sourceAspect) {
+      sourceHeight = imageWidth / destinationAspect;
+      sourceY = clamp(
+        imageHeight * focal.y - sourceHeight * 0.5,
+        0,
+        imageHeight - sourceHeight,
+      );
+    } else {
+      sourceWidth = imageHeight * destinationAspect;
+      sourceX = clamp(
+        imageWidth * focal.x - sourceWidth * 0.5,
+        0,
+        imageWidth - sourceWidth,
+      );
+    }
+
+    const style = getFactionStyle(card);
+    ctx.save();
+    roundedRect(ctx, x, y, width, height, Math.max(4, width * 0.05));
+    ctx.clip();
+    ctx.drawImage(
+      image,
+      sourceX,
+      sourceY,
+      sourceWidth,
+      sourceHeight,
+      x,
+      y,
+      width,
+      height,
+    );
+
+    const topSheen = ctx.createLinearGradient(x, y, x, y + height * 0.58);
+    topSheen.addColorStop(0, compact ? "rgba(255,255,255,.11)" : "rgba(255,255,255,.07)");
+    topSheen.addColorStop(0.52, "rgba(255,255,255,0)");
+    ctx.fillStyle = topSheen;
+    ctx.fillRect(x, y, width, height * 0.62);
+
+    const lowerReadability = ctx.createLinearGradient(x, y + height * 0.48, x, y + height);
+    lowerReadability.addColorStop(0, "rgba(4,7,12,0)");
+    lowerReadability.addColorStop(1, compact ? "rgba(4,7,12,.32)" : "rgba(4,7,12,.22)");
+    ctx.fillStyle = lowerReadability;
+    ctx.fillRect(x, y + height * 0.44, width, height * 0.56);
+
+    ctx.globalCompositeOperation = "screen";
+    ctx.strokeStyle = colorWithAlpha(style.glow, compact ? 0.34 : 0.24);
+    ctx.lineWidth = Math.max(0.8, width * 0.008);
+    roundedRect(
+      ctx,
+      x + ctx.lineWidth * 0.5,
+      y + ctx.lineWidth * 0.5,
+      width - ctx.lineWidth,
+      height - ctx.lineWidth,
+      Math.max(4, width * 0.05),
+    );
+    ctx.stroke();
+    ctx.restore();
+    originalCardArtMetrics.draws += 1;
+    return true;
+  }
 
   function portraitCacheSnapshot() {
     return {
@@ -6003,6 +6176,7 @@
   }
 
   function drawPortrait(ctx, x, y, width, height, card, compact, requestedBucket) {
+    if (drawOriginalCardArt(ctx, x, y, width, height, card, compact)) return;
     const profile = portraitSurfaceProfile(width, height, compact, requestedBucket);
     const key = portraitSurfaceKey(card, width, height, compact, profile.bucket);
     const cached = PORTRAIT_SURFACE_CACHE.get(key);
@@ -11798,6 +11972,7 @@
     function destroy() {
       if (destroyed) return;
       destroyed = true;
+      ORIGINAL_CARD_ART_REFRESHERS.delete(invalidateBoardFrame);
       if (frameHandle) global.cancelAnimationFrame(frameHandle);
       if (idleFrameTimer) global.clearTimeout(idleFrameTimer);
       if (resizeObserver) resizeObserver.disconnect();
@@ -11823,6 +11998,7 @@
     if (reducedMotionQuery.addEventListener) {
       reducedMotionQuery.addEventListener("change", invalidateBoardFrame);
     }
+    ORIGINAL_CARD_ART_REFRESHERS.add(invalidateBoardFrame);
     invalidateBoardFrame();
 
     return {
@@ -11857,7 +12033,7 @@
     backdrop.addColorStop(1, "#100e0c");
     galleryCtx.fillStyle = backdrop;
     galleryCtx.fillRect(0, 0, galleryWidth, galleryHeight);
-    drawCenteredText(galleryCtx, `${roster.length}인 애니 셀 v11 · 판타지 마법광 + 액션 컷`, galleryWidth / 2, 27, {
+    drawCenteredText(galleryCtx, `${roster.length}인 오리지널 웹툰 원화 · 장수별 독립 제작`, galleryWidth / 2, 27, {
       font: `900 23px ${SYSTEM_FONT}`,
       color: "#ffe5a2",
       stroke: "#1b0e08",
@@ -11939,6 +12115,7 @@
     art8FigureOverrideCount: Object.keys(ART8_FIGURE_PROFILE_OVERRIDES).length,
     materialEdgeResponseCount: Object.keys(MATERIAL_EDGE_RESPONSES).length,
     animeArtVersion: ANIME_CEL_STYLE_VERSION,
+    originalCardArtVersion: ORIGINAL_CARD_ART_VERSION,
     testHooks: {
       semanticTextLines,
       cardTacticalLabel,
@@ -11973,6 +12150,10 @@
       portraitSurfaceProfile,
       portraitSurfaceKey,
       portraitCacheSnapshot,
+      originalCardArtSource,
+      originalCardArtFocalPoint,
+      originalCardArtSnapshot,
+      drawOriginalCardArt,
       portraitArchetype,
       paintPortraitUncached,
       animeV11IdentityProfile,

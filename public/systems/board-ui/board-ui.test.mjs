@@ -1323,7 +1323,7 @@ test("anime-cel v11 replaces the complete portrait construction and busts stale 
   assert.ok(animeOrder.every((position) => position >= 0));
   assert.deepEqual([...animeOrder].sort((a, b) => a - b), animeOrder);
   assert.match(source, /animeV11Enabled[\s\S]{0,120}paintAnimePortraitV11/);
-  assert.match(gameShellSource, /const gameAssetVersion = "anime-v11-20260731"/);
+  assert.match(gameShellSource, /const gameAssetVersion = "original-webtoon-v1-20260731"/);
   assert.match(gameShellSource, /\.map\(\(src\) => `\$\{src\}\?v=\$\{gameAssetVersion\}`\)/);
   assert.match(gameShellSource, /data-art-version=\{gameAssetVersion\}/);
 
@@ -1338,6 +1338,34 @@ test("anime-cel v11 replaces the complete portrait construction and busts stale 
   ));
   assert.equal(boardModule.animeArtVersion, "anime-cel-v11");
   assert.equal(new Set(identities.map((profile) => JSON.stringify(profile))).size, cards.length);
+});
+
+test("bundles one independently authored webtoon illustration for every playable card", () => {
+  assert.match(source, /const ORIGINAL_CARD_ART_VERSION = "original-webtoon-v1-20260731"/);
+  assert.match(source, /function drawOriginalCardArt\(/);
+  assert.match(source, /if \(drawOriginalCardArt\(ctx, x, y, width, height, card, compact\)\) return/);
+  assert.match(source, /ORIGINAL_CARD_ART_REFRESHERS\.add\(invalidateBoardFrame\)/);
+  assert.match(source, /ORIGINAL_CARD_ART_REFRESHERS\.delete\(invalidateBoardFrame\)/);
+  assert.match(source, /오리지널 웹툰 원화 · 장수별 독립 제작/);
+
+  const sandbox = { globalThis: {} };
+  vm.runInNewContext(source, sandbox, { filename: "board-ui/index.js" });
+  vm.runInNewContext(cardDataSource, sandbox, { filename: "card-data/index.js" });
+  const boardModule = sandbox.globalThis.TK.modules.boardUI;
+  const cards = Array.from(sandbox.globalThis.TK.modules.cardData.getCards());
+  const assetSources = cards.map((card) => boardModule.testHooks.originalCardArtSource(card));
+
+  assert.equal(cards.length, 27);
+  assert.equal(boardModule.originalCardArtVersion, "original-webtoon-v1-20260731");
+  assert.equal(new Set(assetSources).size, cards.length);
+  assert.ok(assetSources.every((asset) => asset.endsWith(`.jpg?v=${boardModule.originalCardArtVersion}`)));
+
+  cards.forEach((card) => {
+    const artUrl = new URL(`../../art/cards/${card.id}.jpg`, import.meta.url);
+    const artBytes = fs.readFileSync(artUrl);
+    assert.ok(artBytes.length > 200_000, `${card.id} must retain premium illustration detail`);
+    assert.deepEqual(Array.from(artBytes.subarray(0, 3)), [0xff, 0xd8, 0xff]);
+  });
 });
 
 test("builds five explicit facial value planes and stronger expression extremes", () => {

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 
-const gameAssetVersion = "anime-v11-20260731";
+  const gameAssetVersion = "original-webtoon-v1-20260731";
 const scripts = [
   "/systems/card-data/index.js",
   "/systems/rules-engine/index.js",
