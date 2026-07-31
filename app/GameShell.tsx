@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 
-  const gameAssetVersion = "original-webtoon-v1-20260731";
+const gameAssetVersion = "commander-wings-v2-20260731";
 const scripts = [
   "/systems/card-data/index.js",
   "/systems/rules-engine/index.js",
@@ -78,9 +78,22 @@ function CommanderPortrait({
   const isNomad = id === "nomad";
   const isSun = id === "sunquan";
   const isLiu = id === "liubei";
+  const artSource = {
+    caocao: "/art/cards/wei_cao_cao.jpg",
+    liubei: "/art/cards/shu_liu_bei.jpg",
+    sunquan: "/art/cards/wu_sun_quan.jpg",
+    nomad: "/art/cards/nanman_meng_huo.jpg",
+  }[id];
 
   return (
-    <svg viewBox="0 0 220 272" role="img" aria-label={`${glyph} 지휘관 초상`}>
+    <>
+      <span
+        className="commander-choice__portrait"
+        style={{ backgroundImage: `url("${artSource}")` }}
+        role="img"
+        aria-label={`${glyph} 지휘관 초상`}
+      />
+      <svg viewBox="0 0 220 272" aria-hidden="true">
       <defs>
         <linearGradient id={`${id}-sky`} x1="0" y1="0" x2="1" y2="1">
           <stop offset="0" stopColor={palette[0]} />
@@ -299,7 +312,8 @@ function CommanderPortrait({
       >
         {glyph}
       </text>
-    </svg>
+      </svg>
+    </>
   );
 }
 

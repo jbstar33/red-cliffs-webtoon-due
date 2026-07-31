@@ -449,11 +449,24 @@ canvas {
   pointer-events: none;
 }
 
-.commander-choice__art svg {
+.commander-choice__portrait {
   display: block;
   width: 100%;
-  height: auto;
-  transform: translateY(-5%);
+  height: 100%;
+  background-position: 50% 24%;
+  background-size: cover;
+  background-repeat: no-repeat;
+  transform: scale(1.035);
+  transition: transform 300ms cubic-bezier(0.2, 0.76, 0.2, 1);
+}
+
+.commander-choice:hover .commander-choice__portrait,
+.commander-choice:focus-visible .commander-choice__portrait {
+  transform: scale(1.085);
+}
+
+.commander-choice__art svg {
+  display: none;
 }
 
 .commander-choice__faction {
@@ -824,10 +837,8 @@ canvas {
     border-bottom: 0;
   }
 
-  .commander-choice__art svg {
-    width: 128%;
-    max-width: none;
-    transform: translate(-11%, -5%);
+  .commander-choice__portrait {
+    background-position: 50% 22%;
   }
 
   .commander-choice__faction {

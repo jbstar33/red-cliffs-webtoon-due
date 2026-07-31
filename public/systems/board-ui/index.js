@@ -5968,6 +5968,12 @@
     "nanman_a_hui_nan",
     "qun_lu_bu",
   ]);
+  const COMMANDER_ART_CARD_IDS = Object.freeze({
+    caocao: "wei_cao_cao",
+    liubei: "shu_liu_bei",
+    sunquan: "wu_sun_quan",
+    nomad: "nanman_meng_huo",
+  });
   const ORIGINAL_CARD_ART_CACHE = new Map();
   const ORIGINAL_CARD_ART_REFRESHERS = new Set();
   const originalCardArtMetrics = {
@@ -8140,18 +8146,21 @@
 
   function playerHandLayoutGeometry(count, index) {
     const safeCount = Math.max(0, Number(count) || 0);
-    const maxSpread = Math.min(780, 76 * Math.max(1, safeCount - 1));
-    const spacing = safeCount <= 1 ? 0 : maxSpread / (safeCount - 1);
-    const centered = index - (safeCount - 1) / 2;
-    // A sparse hand sits left of the player hero and mana rail. This keeps the
-    // top, cost gem, portrait, and name discoverable even before hover lift.
-    const handCenterX = safeCount <= 2 ? 490 : 683;
-    const x = handCenterX + centered * spacing;
-    const normalized = safeCount <= 1 ? 0 : centered / Math.max(1, (safeCount - 1) / 2);
-    // Lower the resting fan so the commander reads as the foreground anchor.
-    // Hover/selection still lifts cards for inspection without hiding the hero.
-    const y = 677 + Math.abs(normalized) * 6;
-    const angle = normalized * 0.115;
+    const leftCount = Math.ceil(safeCount / 2);
+    const onLeft = index < leftCount;
+    const groupIndex = onLeft ? index : index - leftCount;
+    const groupCount = onLeft ? leftCount : safeCount - leftCount;
+    const spacing = groupCount <= 1 ? 0 : Math.min(58, 272 / (groupCount - 1));
+    const x = onLeft
+      ? 510 - (groupCount - 1 - groupIndex) * spacing
+      : 856 + groupIndex * spacing;
+    const localCenter = groupIndex - (groupCount - 1) / 2;
+    const normalized = groupCount <= 1
+      ? 0
+      : localCenter / Math.max(1, (groupCount - 1) / 2);
+    // Two compact wings reserve a clear central bay for the commander.
+    const y = 679 + Math.abs(normalized) * 5;
+    const angle = normalized * 0.085;
     return { x, y, angle };
   }
 
@@ -9664,7 +9673,11 @@
               : "이번 턴 사용 완료";
         return `${commander.name} 지휘관 능력 ${commander.powerName}, 비용 ${commander.powerCost}, ${commander.powerText}, ${statusText}`;
       }
-      if (hit.type === "hero") return `${hit.data.side === "player" ? "아군" : "적"} 영웅`;
+      if (hit.type === "hero") {
+        const side = hit.data.side;
+        const commander = commanderPresentationFor(state, side);
+        return `${side === "player" ? "아군" : "적"} 지휘관 ${commander.name}. ${commander.powerName}, ${commander.powerText}`;
+      }
       if (hit.type === "hand-card") {
         const card = (state.hands && state.hands.player || [])[hit.data.index];
         return `손패 ${getCardValue(card, "name", "카드")}, 비용 ${getCardValue(card, "cost", 0)}`;
@@ -10544,7 +10557,23 @@
         ctx.shadowColor = "rgba(0,0,0,.7)";
         ctx.shadowBlur = 17;
       }
-      ctx.drawImage(heroArt[commander.id], center.x - 68, center.y - 76, 136, 148);
+      ctx.save();
+      heroShieldPath(ctx, center.x, center.y - 1, 113, 142);
+      ctx.clip();
+      const commanderArtCard = { id: COMMANDER_ART_CARD_IDS[commander.id] };
+      const paintedCommander = drawOriginalCardArt(
+        ctx,
+        center.x - 68,
+        center.y - 76,
+        136,
+        148,
+        commanderArtCard,
+        false,
+      );
+      if (!paintedCommander) {
+        ctx.drawImage(heroArt[commander.id], center.x - 68, center.y - 76, 136, 148);
+      }
+      ctx.restore();
       ctx.shadowBlur = 0;
 
       heroShieldPath(ctx, center.x, center.y - 1, 91, 116);
@@ -10615,10 +10644,21 @@
         && selection.kind === "commander-power"
         && selection.commanderId === commander.id,
       );
-      const x = 756;
-      const y = 548;
-      const width = 158;
-      const height = 76;
+      const x = 757;
+      const y = 574;
+      const width = 46;
+      const height = 46;
+      const detailsVisible = Boolean(
+        hoverHit
+        && (
+          hoverHit.type === "commander-power"
+          || (
+            hoverHit.type === "hero"
+            && hoverHit.data
+            && hoverHit.data.side === "player"
+          )
+        )
+      );
       const pulse = reducedMotionQuery.matches ? 0.5 : 0.5 + Math.sin(now * 0.007) * 0.5;
       const tone = status === "ready"
         ? {
@@ -10652,19 +10692,12 @@
         top: tone.top,
         bottom: tone.bottom,
         border: tone.border,
-        radius: 14,
+        radius: 23,
         shadowBlur: status === "ready" ? 13 : 6,
         lineWidth: selected ? 3 : 2,
       });
       ctx.shadowBlur = 0;
-      drawCenteredText(ctx, commander.powerName, x + width / 2 + 8, y + 17, {
-        font: `900 12px ${SYSTEM_FONT}`,
-        color: tone.title,
-        stroke: "#18110d",
-        strokeWidth: 2,
-      });
-
-      ellipsePath(ctx, x + 20, y + 20, 15, 15);
+      ellipsePath(ctx, x + width / 2, y + height / 2, 17, 17);
       ctx.fillStyle = status === "ready" ? "#3d8fc5" : status === "mana" ? "#33495a" : "#444442";
       ctx.fill();
       ctx.strokeStyle = status === "ready" ? "#cdeeff" : "#78858d";
@@ -10672,44 +10705,58 @@
       ctx.stroke();
       drawCenteredText(
         ctx,
-        commander.active ? commander.powerCost : "∞",
-        x + 20,
-        y + 20,
+        commander.active ? commander.powerCost : "反",
+        x + width / 2,
+        y + height / 2,
         {
-          font: `900 13px ${UI_FONT}`,
+          font: `900 14px ${SYSTEM_FONT}`,
           color: status === "ready" ? "#fff" : "#c2c7c9",
           stroke: "#17222b",
           strokeWidth: 2,
         },
       );
+      ctx.restore();
 
-      const effectLines = semanticTextLines(ctx, commander.powerText, width - 20, 2);
-      effectLines.forEach((line, index) => {
-        drawCenteredText(ctx, line, x + width / 2, y + 43 + index * 13, {
-          font: `800 9.5px ${UI_FONT}`,
-          color: tone.body,
+      if (detailsVisible) {
+        const tooltipX = 562;
+        const tooltipY = 478;
+        const tooltipWidth = 242;
+        const tooltipHeight = 86;
+        const statusText = status === "ready"
+          ? "사용 가능"
+          : status === "mana"
+            ? "마나 부족"
+            : status === "unavailable"
+              ? "체력이 가득 참"
+              : "이번 턴 사용 완료";
+        drawPanel(tooltipX, tooltipY, tooltipWidth, tooltipHeight, {
+          top: tone.top,
+          bottom: tone.bottom,
+          border: tone.border,
+          radius: 10,
+          shadowBlur: 16,
+          lineWidth: 2,
         });
-      });
-      if (commander.id === "liubei") {
-        const charges = Math.max(0, Number(commander.reflectCharges || 0));
-        drawCenteredText(ctx, `반사 ${charges}회`, x + width - 34, y + 19, {
-          font: `900 10px ${UI_FONT}`,
-          color: charges > 0 ? "#ffe47e" : "#9b9992",
-          stroke: "#2d1b10",
+        drawCenteredText(ctx, `${commander.name} · ${commander.powerName}`, 683, tooltipY + 20, {
+          font: `900 13px ${SYSTEM_FONT}`,
+          color: tone.title,
+          stroke: "#18110d",
           strokeWidth: 2,
         });
-      } else if (status === "unavailable") {
-        drawCenteredText(ctx, "체력 가득", x + width - 34, y + 18, {
-          font: `900 8.5px ${SYSTEM_FONT}`,
-          color: "#d8c994",
+        const effectLines = semanticTextLines(ctx, commander.powerText, tooltipWidth - 30, 2);
+        effectLines.forEach((line, index) => {
+          drawCenteredText(ctx, line, 683, tooltipY + 43 + index * 14, {
+            font: `800 10.5px ${UI_FONT}`,
+            color: tone.body,
+          });
         });
-      } else if (status === "spent") {
-        drawCenteredText(ctx, "봉인", x + width - 26, y + 18, {
-          font: `900 9px ${SYSTEM_FONT}`,
-          color: "#aaa69e",
+        drawCenteredText(ctx, statusText, tooltipX + tooltipWidth - 43, tooltipY + 18, {
+          font: `900 9px ${UI_FONT}`,
+          color: tone.title,
+          stroke: "#18110d",
+          strokeWidth: 2,
         });
       }
-      ctx.restore();
 
       if (commander.active && state.phase !== "ended") {
         addHit("commander-power", x, y, width, height, {

@@ -1323,7 +1323,7 @@ test("anime-cel v11 replaces the complete portrait construction and busts stale 
   assert.ok(animeOrder.every((position) => position >= 0));
   assert.deepEqual([...animeOrder].sort((a, b) => a - b), animeOrder);
   assert.match(source, /animeV11Enabled[\s\S]{0,120}paintAnimePortraitV11/);
-  assert.match(gameShellSource, /const gameAssetVersion = "original-webtoon-v1-20260731"/);
+  assert.match(gameShellSource, /const gameAssetVersion = "commander-wings-v2-20260731"/);
   assert.match(gameShellSource, /\.map\(\(src\) => `\$\{src\}\?v=\$\{gameAssetVersion\}`\)/);
   assert.match(gameShellSource, /data-art-version=\{gameAssetVersion\}/);
 
@@ -1700,7 +1700,7 @@ test("motion keeps static hand targets and portrait cache outside dynamic overla
   assert.ok(portraitCall > frameStart && dynamicSweep > portraitCall);
 });
 
-test("sparse hands stay left of player hero, vital gems, mana, and the opposite inspector", () => {
+test("sparse hands split into clear wings beside the player commander", () => {
   const sandbox = { globalThis: {} };
   vm.runInNewContext(source, sandbox, { filename: "board-ui/index.js" });
   const hooks = sandbox.globalThis.TK.modules.boardUI.testHooks;
@@ -1709,11 +1709,11 @@ test("sparse hands stay left of player hero, vital gems, mana, and the opposite 
     hooks.playerHandLayoutGeometry(2, 0),
     hooks.playerHandLayoutGeometry(2, 1),
   ];
-  assert.deepEqual({ ...one }, { x: 490, y: 677, angle: 0 });
-  assert.deepEqual(two.map(({ x }) => x), [452, 528]);
-  assert.deepEqual(two.map(({ y }) => y), [680, 680]);
-  assert.equal(two[0].angle, -0.0575);
-  assert.equal(two[1].angle, 0.0575);
+  assert.deepEqual({ ...one }, { x: 510, y: 679, angle: 0 });
+  assert.deepEqual(two.map(({ x }) => x), [510, 856]);
+  assert.deepEqual(two.map(({ y }) => y), [679, 679]);
+  assert.equal(two[0].angle, 0);
+  assert.equal(two[1].angle, 0);
   assert.ok(Math.max(one.y, ...two.map(({ y }) => y)) + 74 < 768,
     "lowered cards keep their attack and health gems inside the canvas");
 
@@ -1724,42 +1724,42 @@ test("sparse hands stay left of player hero, vital gems, mana, and the opposite 
     + Math.abs(Math.sin(angle)) * cardHeight / 2
   );
   const leftCardEdge = two[0].x - halfRotatedWidth(two[0].angle);
-  const rightCardEdge = two[1].x + halfRotatedWidth(two[1].angle);
-  const activeRightEdge = two[1].x + cardWidth * 1.04 / 2;
+  const leftCardRight = two[0].x + halfRotatedWidth(two[0].angle);
+  const rightCardLeft = two[1].x - halfRotatedWidth(two[1].angle);
+  const activeLeftRight = two[0].x + cardWidth * 1.04 / 2;
+  const activeRightLeft = two[1].x - cardWidth * 1.04 / 2;
   const oppositeInspectorRight = 330;
   const playerHeroArtLeft = 615;
-  const protectedArmorGemLeft = 612.5;
-  const manaRailLeft = 824;
+  const playerHeroArtRight = 751;
 
   assert.ok(leftCardEdge > oppositeInspectorRight);
-  assert.ok(rightCardEdge < playerHeroArtLeft);
-  assert.ok(activeRightEdge < protectedArmorGemLeft);
-  assert.ok(rightCardEdge < manaRailLeft);
+  assert.ok(leftCardRight < playerHeroArtLeft);
+  assert.ok(activeLeftRight < playerHeroArtLeft);
+  assert.ok(rightCardLeft > playerHeroArtRight);
+  assert.ok(activeRightLeft > playerHeroArtRight);
   for (const [viewportWidth, viewportHeight] of [[979, 856], [768, 720]]) {
     const scale = Math.min(viewportWidth / 1365, viewportHeight / 768);
     assert.ok((leftCardEdge - oppositeInspectorRight) * scale >= 8);
-    assert.ok((playerHeroArtLeft - rightCardEdge) * scale >= 8);
-    assert.ok((protectedArmorGemLeft - activeRightEdge) * scale >= 8);
+    assert.ok((playerHeroArtLeft - leftCardRight) * scale >= 8);
+    assert.ok((rightCardLeft - playerHeroArtRight) * scale >= 8);
   }
   assert.match(source, /panelSide: pointer\.x < LOGICAL_WIDTH \/ 2 \? "right" : "left"/);
 });
 
-test("three-to-five-card fans rest below the foreground commander", () => {
+test("three-to-five-card hands preserve a clear commander bay", () => {
   const sandbox = { globalThis: {} };
   vm.runInNewContext(source, sandbox, { filename: "board-ui/index.js" });
   const layout = sandbox.globalThis.TK.modules.boardUI.testHooks.playerHandLayoutGeometry;
-  const expectedX = {
-    3: [607, 683, 759],
-    4: [569, 645, 721, 797],
-    5: [531, 607, 683, 759, 835],
-  };
   for (const count of [3, 4, 5]) {
     const fan = Array.from({ length: count }, (_, index) => layout(count, index));
-    assert.deepEqual(fan.map(({ x }) => x), expectedX[count]);
-    assert.equal(fan[0].y, 683);
-    assert.equal(fan.at(-1).y, 683);
-    assert.equal(fan[0].angle, -0.115);
-    assert.equal(fan.at(-1).angle, 0.115);
+    const leftWing = fan.filter(({ x }) => x <= 510);
+    const rightWing = fan.filter(({ x }) => x >= 856);
+    assert.equal(leftWing.length, Math.ceil(count / 2));
+    assert.equal(rightWing.length, Math.floor(count / 2));
+    assert.ok(leftWing.every(({ x }) => x + 58 < 615));
+    assert.ok(rightWing.every(({ x }) => x - 58 > 751));
+    assert.ok(fan.every(({ y }) => y >= 679 && y <= 684));
+    assert.ok(fan.every(({ angle }) => Math.abs(angle) <= 0.085));
   }
 });
 
@@ -1805,7 +1805,10 @@ test("1280x720 hands of three-to-five cards stay clear of both inspector docks",
         width: halfWidth * 2,
         height: halfHeight * 2 + 72,
       });
-      inspectors.forEach((panel) => assert.equal(overlaps(cardBounds, panel), false));
+      const oppositeInspector = layout.x < boardModule.LOGICAL_WIDTH / 2
+        ? inspectors[1]
+        : inspectors[0];
+      assert.equal(overlaps(cardBounds, oppositeInspector), false);
     }
   }
 
