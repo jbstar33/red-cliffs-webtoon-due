@@ -16,7 +16,7 @@
 </head>
 <body>
   <main id="game"><canvas id="board"></canvas></main>
-  <section id="gallery" aria-label="27인 초상 검수 갤러리">
+  <section id="gallery" aria-label="50인 초상 검수 갤러리">
     <canvas id="portrait-gallery"></canvas>
   </section>
   <script src="./index.js"></script>
@@ -29,6 +29,11 @@
       ["shu_zhuge_liang", "제갈량", "공명", "촉", "책사"],
       ["shu_huang_zhong", "황충", "한승", "촉", "궁장"],
       ["shu_ma_chao", "마초", "맹기", "촉", "서량 선봉"],
+      ["shu_pang_tong", "방통", "사원", "촉", "책사"],
+      ["shu_wei_yan", "위연", "문장", "촉", "돌격장"],
+      ["shu_jiang_wei", "강유", "백약", "촉", "계승자"],
+      ["shu_fa_zheng", "법정", "효직", "촉", "모사"],
+      ["shu_liao_hua", "요화", "원검", "촉", "노장"],
       ["wei_cao_cao", "조조", "맹덕", "위", "군주"],
       ["wei_sima_yi", "사마의", "중달", "위", "책사"],
       ["wei_xiahou_dun", "하후돈", "원양", "위", "호위"],
@@ -36,6 +41,11 @@
       ["wei_zhang_liao", "장료", "문원", "위", "기병"],
       ["wei_guo_jia", "곽가", "봉효", "위", "책사"],
       ["wei_xu_zhu", "허저", "중강", "위", "호치"],
+      ["wei_xiahou_yuan", "하후연", "묘재", "위", "신속궁장"],
+      ["wei_yu_jin", "우금", "문칙", "위", "진장"],
+      ["wei_cao_ren", "조인", "자효", "위", "성수"],
+      ["wei_xun_yu", "순욱", "문약", "위", "왕좌지재"],
+      ["wei_li_dian", "이전", "만성", "위", "선봉"],
       ["wu_sun_quan", "손권", "중모", "오", "군주"],
       ["wu_zhou_yu", "주유", "공근", "오", "도독"],
       ["wu_gan_ning", "감녕", "흥패", "오", "수적"],
@@ -43,12 +53,25 @@
       ["wu_huang_gai", "황개", "공복", "오", "노장"],
       ["wu_sun_shangxiang", "손상향", "궁요희", "오", "궁장"],
       ["wu_lu_xun", "육손", "백언", "오", "도독"],
+      ["wu_taishi_ci", "태사자", "자의", "오", "궁기병"],
+      ["wu_cheng_pu", "정보", "덕모", "오", "숙장"],
+      ["wu_da_qiao", "대교", "", "오", "치유사"],
+      ["wu_xiao_qiao", "소교", "", "오", "악사"],
+      ["wu_zhou_tai", "주태", "유평", "오", "호위"],
       ["nanman_meng_huo", "맹획", "", "남만", "남만왕"],
       ["nanman_zhu_rong", "축융", "", "남만", "화신 장수"],
       ["nanman_wu_tu_gu", "올돌골", "", "남만", "등갑왕"],
       ["nanman_mu_lu", "목록대왕", "", "남만", "수왕"],
       ["nanman_a_hui_nan", "아회남", "", "남만", "부족 전령"],
+      ["nanman_duo_si", "타사대왕", "", "남만", "독사왕"],
+      ["nanman_jinhuan_sanjie", "금환삼결", "", "남만", "부족장"],
+      ["nanman_mang_ya_chang", "망아장", "", "남만", "맹장"],
+      ["nanman_hua_man", "화만", "", "남만", "밀림 선봉"],
+      ["nanman_dai_lai_dong_zhu", "대래동주", "", "남만", "부족 수호자"],
       ["qun_lu_bu", "여포", "봉선", "군웅", "비장"],
+      ["qun_diao_chan", "초선", "", "군웅", "연환미인"],
+      ["qun_dong_zhuo", "동탁", "중영", "군웅", "폭군"],
+      ["qun_yuan_shao", "원소", "본초", "군웅", "맹주"],
     ];
     const fullTexts = {
       shu_liu_bei: "출전: 아군 영웅의 체력을 2 회복합니다.",
@@ -123,6 +146,7 @@
     };
     function card(index) {
       const general = roster[index % roster.length];
+      const fullText = fullTexts[general[0]] || "능력 없음.";
       return {
         id: general[0],
         instanceId: `mock-${index}-${Math.random()}`,
@@ -136,10 +160,10 @@
         currentHealth: (index % 6) + 2,
         maxHealth: (index % 6) + 2,
         role: general[4],
-        text: fullTexts[general[0]],
-        summaryText: fullTexts[general[0]].split(".")[0],
+        text: fullText,
+        summaryText: fullText.split(".")[0],
         flavor: `${general[1]}의 이름은 전장의 북소리보다 먼저 적진에 닿았다.`,
-        tactics: { identity: tacticalIdentities[general[0]] },
+        tactics: { identity: tacticalIdentities[general[0]] || `${general[4]} 전술` },
         target: index === 1 ? "enemy" : "none",
         abilities: index === 1 ? [{ trigger: "onPlay", op: "damage_target", amount: 3 }] : [],
         keywords: keywordSets[general[0]] || [],

@@ -5984,7 +5984,7 @@
   const PORTRAIT_SURFACE_CACHE = new Map();
   const PORTRAIT_SURFACE_CACHE_LIMIT = 144;
   const portraitCacheMetrics = { hits: 0, misses: 0, paints: 0, evictions: 0 };
-  const ORIGINAL_CARD_ART_VERSION = "original-webtoon-v1-20260731";
+  const ORIGINAL_CARD_ART_VERSION = "original-webtoon-v2-20260802";
   const ORIGINAL_CARD_ART_IDS = new Set([
     "shu_liu_bei",
     "shu_guan_yu",
@@ -5993,6 +5993,11 @@
     "shu_zhuge_liang",
     "shu_huang_zhong",
     "shu_ma_chao",
+    "shu_pang_tong",
+    "shu_wei_yan",
+    "shu_jiang_wei",
+    "shu_fa_zheng",
+    "shu_liao_hua",
     "wei_cao_cao",
     "wei_sima_yi",
     "wei_xiahou_dun",
@@ -6000,6 +6005,11 @@
     "wei_zhang_liao",
     "wei_guo_jia",
     "wei_xu_zhu",
+    "wei_xiahou_yuan",
+    "wei_yu_jin",
+    "wei_cao_ren",
+    "wei_xun_yu",
+    "wei_li_dian",
     "wu_sun_quan",
     "wu_zhou_yu",
     "wu_gan_ning",
@@ -6007,12 +6017,25 @@
     "wu_huang_gai",
     "wu_sun_shangxiang",
     "wu_lu_xun",
+    "wu_taishi_ci",
+    "wu_cheng_pu",
+    "wu_da_qiao",
+    "wu_xiao_qiao",
+    "wu_zhou_tai",
     "nanman_meng_huo",
     "nanman_zhu_rong",
     "nanman_wu_tu_gu",
     "nanman_mu_lu",
     "nanman_a_hui_nan",
+    "nanman_duo_si",
+    "nanman_jinhuan_sanjie",
+    "nanman_mang_ya_chang",
+    "nanman_hua_man",
+    "nanman_dai_lai_dong_zhu",
     "qun_lu_bu",
+    "qun_diao_chan",
+    "qun_dong_zhuo",
+    "qun_yuan_shao",
   ]);
   const COMMANDER_ART_CARD_IDS = Object.freeze({
     caocao: "wei_cao_cao",
@@ -12186,7 +12209,11 @@
     if (!canvas || typeof canvas.getContext !== "function") {
       throw new Error("boardUI gallery: canvas가 필요합니다.");
     }
-    const roster = Array.isArray(cards) ? cards.slice(0, 27) : [];
+    const roster = Array.isArray(cards) ? cards.slice(0, 50) : [];
+    const refreshGallery = () => {
+      ORIGINAL_CARD_ART_REFRESHERS.delete(refreshGallery);
+      renderPortraitGallery(canvas, cards);
+    };
     const rowHeight = 158;
     const galleryWidth = 1320;
     const galleryColumns = 3;
@@ -12262,6 +12289,11 @@
       galleryCtx.font = `650 9px ${UI_FONT}`;
       galleryCtx.fillText(portraitArchetype(card).scene, cellX + 20, rowY + 55);
     });
+    const hasPendingArt = roster.some((card) => {
+      const entry = requestOriginalCardArt(card);
+      return entry && entry.status === "loading";
+    });
+    if (hasPendingArt) ORIGINAL_CARD_ART_REFRESHERS.add(refreshGallery);
     return {
       width: galleryWidth,
       height: galleryHeight,

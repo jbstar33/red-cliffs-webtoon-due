@@ -522,8 +522,8 @@ test("all nineteen normalized inspector layouts fit without phantom ability spac
 
 test("mock exercises all portraits and representative long-form card text", () => {
   const ids = mockSource.match(/\["(?:shu|wei|wu|nanman|qun)_[a-z_]+"/g) || [];
-  assert.equal(ids.length, 27);
-  assert.match(mockSource, /aria-label="27인 초상 검수 갤러리"/);
+  assert.equal(ids.length, 50);
+  assert.match(mockSource, /aria-label="50인 초상 검수 갤러리"/);
   for (const id of [
     "shu_ma_chao", "wei_xu_zhu", "wu_lu_xun", "nanman_meng_huo",
     "nanman_zhu_rong", "nanman_wu_tu_gu", "nanman_mu_lu", "nanman_a_hui_nan",
@@ -586,7 +586,10 @@ test("shows only the concise tactical identity pill in inspection metadata", () 
   assert.match(source, /`전술 · \$\{tacticalIdentity\}`/);
   assert.doesNotMatch(source, /tactics\.(?:plan|combo|counter)/);
   assert.match(mockSource, /qun_lu_bu: "최종 돌진 병기"/);
-  assert.match(mockSource, /tactics: \{ identity: tacticalIdentities\[general\[0\]\] \}/);
+  assert.match(
+    mockSource,
+    /tactics: \{ identity: tacticalIdentities\[general\[0\]\] \|\| `\$\{general\[4\]\} 전술` \}/,
+  );
 });
 
 test("uses anime-cel portrait finishes and protects the art from name overlays", () => {
@@ -1405,8 +1408,8 @@ test("anime-cel v11 replaces the complete portrait construction and busts stale 
   assert.equal(new Set(identities.map((profile) => JSON.stringify(profile))).size, cards.length);
 });
 
-test("preserves premium art for the original roster and stable portraits for all playable cards", () => {
-  assert.match(source, /const ORIGINAL_CARD_ART_VERSION = "original-webtoon-v1-20260731"/);
+test("bundles premium independent art for all fifty playable cards", () => {
+  assert.match(source, /const ORIGINAL_CARD_ART_VERSION = "original-webtoon-v2-20260802"/);
   assert.match(source, /function drawOriginalCardArt\(/);
   assert.match(source, /if \(drawOriginalCardArt\(ctx, x, y, width, height, card, compact\)\) return/);
   assert.match(source, /ORIGINAL_CARD_ART_REFRESHERS\.add\(invalidateBoardFrame\)/);
@@ -1421,11 +1424,11 @@ test("preserves premium art for the original roster and stable portraits for all
   const assetSources = cards.map((card) => boardModule.testHooks.originalCardArtSource(card));
 
   assert.equal(cards.length, 50);
-  assert.equal(boardModule.originalCardArtVersion, "original-webtoon-v1-20260731");
+  assert.equal(boardModule.originalCardArtVersion, "original-webtoon-v2-20260802");
   const authoredCards = cards.filter((_, index) => assetSources[index]);
   const generatedCards = cards.filter((_, index) => !assetSources[index]);
-  assert.equal(authoredCards.length, 27);
-  assert.equal(generatedCards.length, 23);
+  assert.equal(authoredCards.length, 50);
+  assert.equal(generatedCards.length, 0);
   assert.equal(new Set(assetSources.filter(Boolean)).size, authoredCards.length);
   assert.ok(assetSources.filter(Boolean).every(
     (asset) => asset.endsWith(`.jpg?v=${boardModule.originalCardArtVersion}`),
