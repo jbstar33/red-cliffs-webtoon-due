@@ -227,6 +227,42 @@
         }
       }
 
+      function balanceOpeningCards(cards, openingSize) {
+        const size = Math.min(Math.max(0, openingSize), cards.length);
+        if (size < 2) return;
+        const isLowCost = (card) => numberOr(card?.currentCost, card?.cost) <= 2;
+        let lowCostCount = cards.slice(0, size).filter(isLowCost).length;
+
+        while (lowCostCount > Math.floor(size / 2)) {
+          const openingIndex = cards
+            .slice(0, size)
+            .map((card, index) => ({ card, index }))
+            .reverse()
+            .find((entry) => isLowCost(entry.card))?.index;
+          const reserveIndex = cards.findIndex(
+            (card, index) => index >= size && !isLowCost(card),
+          );
+          if (openingIndex == null || reserveIndex < 0) break;
+          [cards[openingIndex], cards[reserveIndex]] = [
+            cards[reserveIndex],
+            cards[openingIndex],
+          ];
+          lowCostCount -= 1;
+        }
+
+        if (lowCostCount === 0) {
+          const reserveIndex = cards.findIndex(
+            (card, index) => index >= size && isLowCost(card),
+          );
+          if (reserveIndex >= 0) {
+            [cards[size - 1], cards[reserveIndex]] = [
+              cards[reserveIndex],
+              cards[size - 1],
+            ];
+          }
+        }
+      }
+
       function effectLogMessage(detail) {
         const cardName = detail.cardName || detail.sourceName || "카드";
         const result = detail.result || {};
@@ -1864,6 +1900,8 @@
         state.decks.ai = normalizeDeck(config.aiDeck, definitionMap, makeCard);
         shuffle(state.decks.player);
         shuffle(state.decks.ai);
+        balanceOpeningCards(state.decks.player, 4);
+        balanceOpeningCards(state.decks.ai, 4);
         publish("game:start", {
           seed: String(seed),
           playerDeckSize: state.decks.player.length,

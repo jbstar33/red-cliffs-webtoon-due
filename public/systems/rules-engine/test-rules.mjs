@@ -363,6 +363,33 @@ function testInitialStateAndSnapshotIsolation() {
   assert.equal(untouched.hands.player.length, 4);
 }
 
+function testOpeningHandCostBalance() {
+  const balancedDeck = [
+    ...deckOf("charger", 10),
+    ...deckOf("expensive", 10),
+  ];
+
+  for (let seed = 0; seed < 256; seed += 1) {
+    const game = createGame({
+      definitions,
+      tokens,
+      playerDeck: balancedDeck,
+      aiDeck: balancedDeck,
+      seed: `opening-curve-${seed}`,
+    });
+    const state = game.getState();
+    for (const side of ["player", "ai"]) {
+      const lowCostCards = state.hands[side].filter(
+        (card) => card.currentCost <= 2,
+      ).length;
+      assert.ok(
+        lowCostCards >= 1 && lowCostCards <= 2,
+        `${side} opening hand must contain one or two low-cost cards for seed ${seed}`,
+      );
+    }
+  }
+}
+
 function testTurnManaSummoningAndBoardLimit() {
   const game = createGame({
     definitions,
@@ -1914,6 +1941,7 @@ function testCompleteTwentyCardBattle() {
 }
 
 testInitialStateAndSnapshotIsolation();
+testOpeningHandCostBalance();
 testTurnManaSummoningAndBoardLimit();
 testTargetingGuardShieldAndCombat();
 testSnipeBypassesGuardForCommanderOnly();

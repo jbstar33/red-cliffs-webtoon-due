@@ -1363,29 +1363,29 @@
       "wei_cao_cao", "wei_sima_yi", "wei_xiahou_dun", "wei_dian_wei",
       "wei_zhang_liao", "wei_guo_jia", "wei_xu_zhu", "wei_xiahou_yuan",
       "wei_yu_jin", "wei_cao_ren", "wei_xun_yu", "wei_li_dian",
-      "qun_diao_chan", "qun_dong_zhuo", "shu_fa_zheng", "shu_liao_hua",
-      "wu_da_qiao", "wu_xiao_qiao", "nanman_duo_si", "nanman_jinhuan_sanjie"
+      "qun_diao_chan", "qun_dong_zhuo", "shu_fa_zheng", "shu_huang_zhong",
+      "wu_da_qiao", "wu_lu_meng", "nanman_duo_si", "nanman_jinhuan_sanjie"
     ]),
     shu: Object.freeze([
       "shu_liu_bei", "shu_guan_yu", "shu_zhang_fei", "shu_zhao_yun",
       "shu_zhuge_liang", "shu_huang_zhong", "shu_ma_chao", "shu_pang_tong",
       "shu_wei_yan", "shu_jiang_wei", "shu_fa_zheng", "shu_liao_hua",
-      "qun_lu_bu", "qun_yuan_shao", "wei_xun_yu", "wei_li_dian",
-      "wu_da_qiao", "wu_xiao_qiao", "nanman_duo_si", "nanman_jinhuan_sanjie"
+      "qun_lu_bu", "qun_yuan_shao", "wei_xun_yu", "wei_xiahou_yuan",
+      "wu_da_qiao", "wu_lu_meng", "nanman_duo_si", "nanman_a_hui_nan"
     ]),
     wu: Object.freeze([
       "wu_sun_quan", "wu_zhou_yu", "wu_gan_ning", "wu_lu_meng",
       "wu_huang_gai", "wu_sun_shangxiang", "wu_lu_xun", "wu_taishi_ci",
       "wu_cheng_pu", "wu_da_qiao", "wu_xiao_qiao", "wu_zhou_tai",
-      "qun_diao_chan", "qun_dong_zhuo", "shu_fa_zheng", "shu_liao_hua",
-      "wei_xun_yu", "wei_li_dian", "nanman_duo_si", "nanman_jinhuan_sanjie"
+      "qun_diao_chan", "qun_dong_zhuo", "shu_fa_zheng", "shu_huang_zhong",
+      "wei_xun_yu", "wei_xiahou_yuan", "nanman_duo_si", "nanman_a_hui_nan"
     ]),
     nanman: Object.freeze([
       "nanman_meng_huo", "nanman_zhu_rong", "nanman_wu_tu_gu", "nanman_mu_lu",
       "nanman_a_hui_nan", "nanman_duo_si", "nanman_jinhuan_sanjie",
       "nanman_mang_ya_chang", "nanman_hua_man", "nanman_dai_lai_dong_zhu",
       "qun_lu_bu", "qun_diao_chan", "qun_dong_zhuo", "qun_yuan_shao",
-      "shu_fa_zheng", "shu_liao_hua", "wei_xun_yu", "wei_li_dian",
+      "shu_fa_zheng", "shu_huang_zhong", "wei_xun_yu", "wei_xiahou_yuan",
       "wu_da_qiao", "wu_xiao_qiao"
     ])
   });
@@ -1916,8 +1916,8 @@
       if (selectedFactionCards < 10) {
         errors.push(recipeKey + " 진영 덱의 선택 진영 카드가 10장 미만임");
       }
-      if (recipeCheap < 8 || recipeEarly < 14) {
-        errors.push(recipeKey + " 진영 덱의 초·중반 비용 곡선이 부족함");
+      if (recipeCheap !== 10 || recipeEarly < 14) {
+        errors.push(recipeKey + " 진영 덱의 비용 곡선이 10:10 균형을 벗어남");
       }
     });
     CARDS.forEach(function ensureRecipeCoverage(card) {

@@ -152,7 +152,7 @@ function auditDeck(deck, label) {
     if (byId[id].cost <= 4) early += 1;
   });
   assert.ok(Object.values(copies).every(function limit(count) { return count <= 2; }));
-  assert.ok(cheap >= 8, label + ": cheap curve");
+  assert.equal(cheap, 10, label + ": exactly half the deck should cost 1-2");
   assert.ok(early >= 14, label + ": early curve");
 }
 
