@@ -247,6 +247,7 @@
             target_missing: "대상 없음",
             token_missing: "소환 대상 없음",
             board_full: "전장 가득 참",
+            target_cost_exceeded: "대상 비용 초과",
             no_draw_requested: "뽑을 카드 없음",
             unsupported_op: "지원하지 않는 효과",
           };
@@ -281,6 +282,15 @@
         }
         if (detail.op === "gain_armor") {
           return `${cardName}: 방어도 +${result.actualArmorGained || 0}`;
+        }
+        if (detail.op === "grant_all_allies_armor") {
+          return `${cardName}: 아군 전장 방어력 +${result.armorGainedPerTarget || 0}`;
+        }
+        if (
+          detail.op === "steal_enemy_minion" ||
+          detail.op === "steal_enemy_minion_max_cost"
+        ) {
+          return `${cardName}: ${result.stolenTarget?.name || "적 장수"}의 지휘권 획득`;
         }
         if (detail.op === "reduce_random_hand_cost") {
           const discounted = result.discountedTarget;
@@ -369,6 +379,7 @@
       function createMinion(card, side) {
         const attack = Math.max(0, numberOr(card.attack, 0));
         const health = Math.max(1, numberOr(card.health, 1));
+        const armor = Math.max(0, numberOr(card.currentArmor, numberOr(card.armor, 0)));
         const keywords = Array.isArray(card.keywords) ? card.keywords : [];
         const hasCharge = keywords.includes("돌진");
         return {
@@ -377,6 +388,8 @@
           currentAttack: attack,
           currentHealth: health,
           maxHealth: health,
+          armor,
+          currentArmor: armor,
           canAttack: hasCharge && attack > 0,
           attacksLeft: hasCharge && attack > 0 ? 1 : 0,
           shield: keywords.includes("방패"),
@@ -447,7 +460,7 @@
       }
 
       function damageMinion(side, minion, rawAmount, source) {
-        const amount = Math.max(0, numberOr(rawAmount, 0));
+        let amount = Math.max(0, numberOr(rawAmount, 0));
         if (amount <= 0 || !minion) return 0;
         const healthBefore = minion.currentHealth;
         const boardIndex = state.boards[side].findIndex(
@@ -463,6 +476,7 @@
             instanceId: minion.instanceId,
             amount: 0,
             actualDamage: 0,
+            armorAbsorbed: 0,
             absorbedByShield: true,
             blockedByShield: true,
             shieldBroken: true,
@@ -473,6 +487,14 @@
           });
           return 0;
         }
+        const armorBefore = Math.max(
+          0,
+          numberOr(minion.currentArmor, numberOr(minion.armor, 0)),
+        );
+        const armorAbsorbed = Math.min(armorBefore, amount);
+        minion.currentArmor = armorBefore - armorAbsorbed;
+        minion.armor = minion.currentArmor;
+        amount -= armorAbsorbed;
         minion.currentHealth -= amount;
         publish("minion:damage", {
           actor: source && source.side ? source.side : null,
@@ -481,6 +503,7 @@
           instanceId: minion.instanceId,
           amount,
           actualDamage: amount,
+          armorAbsorbed,
           absorbedByShield: false,
           blockedByShield: false,
           shieldBroken: false,
@@ -613,7 +636,14 @@
         result.targetId = target.entity.id || null;
         result.blockedByShield = Boolean(target.entity.shield && amount > 0);
         result.shieldBroken = result.blockedByShield;
-        result.actualDamage = result.blockedByShield ? 0 : amount;
+        const armor = Math.max(
+          0,
+          numberOr(target.entity.currentArmor, numberOr(target.entity.armor, 0)),
+        );
+        result.armorAbsorbed = result.blockedByShield ? 0 : Math.min(armor, amount);
+        result.actualDamage = result.blockedByShield
+          ? 0
+          : Math.max(0, amount - result.armorAbsorbed);
         result.healthBefore = target.entity.currentHealth;
         result.healthAfter = target.entity.currentHealth - result.actualDamage;
         return result;
@@ -788,6 +818,77 @@
         } else if (op === "gain_armor") {
           preview.target = { zone: "hero", side };
           preview.result.actualArmorGained = Math.max(0, amount);
+        } else if (op === "grant_all_allies_armor") {
+          const armorAmount = Math.max(0, amount);
+          preview.target = { zone: "board", side, all: true };
+          preview.targets = state.boards[side].map((minion, index) => ({
+            minion,
+            target: { zone: "board", side, index },
+          }));
+          preview.result.armorGainedPerTarget = armorAmount;
+          preview.result.actualArmorGranted = armorAmount * preview.targets.length;
+          preview.result.affectedTargets = preview.targets.map(({ minion, target }) => {
+            const armorBefore = Math.max(
+              0,
+              numberOr(minion.currentArmor, numberOr(minion.armor, 0)),
+            );
+            return {
+              target,
+              id: minion.id,
+              instanceId: minion.instanceId,
+              armorBefore,
+              armorAfter: armorBefore + armorAmount,
+            };
+          });
+        } else if (
+          op === "steal_enemy_minion" ||
+          op === "steal_enemy_minion_max_cost"
+        ) {
+          preview.selected = findTarget(preview.target);
+          const maxCost =
+            op === "steal_enemy_minion_max_cost"
+              ? Math.max(0, numberOr(ability.maxCost, 0))
+              : null;
+          const selectedCost = preview.selected
+            ? Math.max(
+                0,
+                numberOr(
+                  preview.selected.entity.currentCost,
+                  numberOr(preview.selected.entity.cost, 0),
+                ),
+              )
+            : null;
+          if (!preview.selected) {
+            preview.result.success = false;
+            preview.result.fizzled = true;
+            preview.result.reason = "target_missing";
+          } else if (preview.selected.zone !== "board" || preview.selected.side !== enemy) {
+            preview.result.success = false;
+            preview.result.fizzled = true;
+            preview.result.reason = "invalid_target";
+          } else if (maxCost != null && selectedCost > maxCost) {
+            preview.result.success = false;
+            preview.result.fizzled = true;
+            preview.result.reason = "target_cost_exceeded";
+            preview.result.maxCost = maxCost;
+            preview.result.targetCost = selectedCost;
+          } else if (state.boards[side].length >= BOARD_LIMIT) {
+            preview.result.success = false;
+            preview.result.fizzled = true;
+            preview.result.reason = "board_full";
+          } else {
+            preview.result.maxCost = maxCost;
+            preview.result.targetCost = selectedCost;
+            preview.result.stolenTarget = {
+              id: preview.selected.entity.id,
+              instanceId: preview.selected.entity.instanceId,
+              name: preview.selected.entity.name || "",
+              from: { zone: "board", side: enemy, index: preview.selected.index },
+              to: { zone: "board", side, index: state.boards[side].length },
+              canAttack: false,
+              availableFromTurn: state.turnNumber + 2,
+            };
+          }
         } else if (op === "buff_target") {
           preview.selected = findTarget(preview.target);
           if (!preview.selected || preview.selected.zone !== "board") {
@@ -977,6 +1078,36 @@
           }
         } else if (op === "gain_armor") {
           state.heroes[side].armor += Math.max(0, amount);
+        } else if (op === "grant_all_allies_armor") {
+          const armorAmount = Math.max(0, amount);
+          preview.targets.forEach(({ minion }) => {
+            const currentArmor = Math.max(
+              0,
+              numberOr(minion.currentArmor, numberOr(minion.armor, 0)),
+            );
+            minion.currentArmor = currentArmor + armorAmount;
+            minion.armor = minion.currentArmor;
+          });
+        } else if (
+          op === "steal_enemy_minion" ||
+          op === "steal_enemy_minion_max_cost"
+        ) {
+          if (preview.result.success && preview.selected) {
+            const sourceBoard = state.boards[enemy];
+            const targetIndex = sourceBoard.findIndex(
+              (minion) => minion.instanceId === preview.selected.entity.instanceId,
+            );
+            if (targetIndex >= 0 && state.boards[side].length < BOARD_LIMIT) {
+              const stolen = sourceBoard.splice(targetIndex, 1)[0];
+              stolen.controller = side;
+              stolen.canAttack = false;
+              stolen.attacksLeft = 0;
+              stolen.attackLockPending = false;
+              stolen.attackLockedThisTurn = false;
+              stolen.summonedTurn = state.turnNumber;
+              state.boards[side].push(stolen);
+            }
+          }
         } else if (op === "buff_target") {
           if (preview.selected && preview.selected.zone === "board") {
             buffMinion(preview.selected.entity, ability);
@@ -1140,15 +1271,44 @@
       }
 
       function cardTargetKind(card) {
-        return card && ["enemy", "friendly", "any"].includes(card.target)
-          ? card.target
+        if (!card) return "none";
+        if (["enemy", "friendly", "any", "enemyMinion"].includes(card.target)) {
+          return card.target;
+        }
+        const abilities = Array.isArray(card.abilities) ? card.abilities : [];
+        return abilities.some(
+          (ability) =>
+            ability &&
+            (ability.target === "enemyMinion" ||
+              ability.op === "steal_enemy_minion" ||
+              ability.op === "steal_enemy_minion_max_cost"),
+        )
+          ? "enemyMinion"
           : "none";
       }
 
       function targetedAbilityKind(card) {
         const abilities = Array.isArray(card.abilities) ? card.abilities : [];
-        if (abilities.some((ability) => ability.op === "buff_target")) return "minion";
+        if (
+          cardTargetKind(card) === "enemyMinion" ||
+          abilities.some(
+            (ability) =>
+              ability.op === "buff_target" ||
+              ability.op === "steal_enemy_minion" ||
+              ability.op === "steal_enemy_minion_max_cost",
+          )
+        ) {
+          return "minion";
+        }
         return "any";
+      }
+
+      function targetMaxCost(card) {
+        const abilities = Array.isArray(card.abilities) ? card.abilities : [];
+        const ability = abilities.find(
+          (candidate) => candidate && candidate.op === "steal_enemy_minion_max_cost",
+        );
+        return ability ? Math.max(0, numberOr(ability.maxCost, 0)) : null;
       }
 
       function legalCardTargets(card, side) {
@@ -1156,11 +1316,22 @@
         if (kind === "none") return [null];
         const targetKind = targetedAbilityKind(card);
         const sides =
-          kind === "enemy" ? [OTHER_SIDE[side]] : kind === "friendly" ? [side] : SIDES;
+          kind === "enemy" || kind === "enemyMinion"
+            ? [OTHER_SIDE[side]]
+            : kind === "friendly"
+              ? [side]
+              : SIDES;
+        const maxCost = targetMaxCost(card);
         const targets = [];
         sides.forEach((targetSide) => {
           if (targetKind === "any") targets.push({ zone: "hero", side: targetSide });
-          state.boards[targetSide].forEach((_minion, index) => {
+          state.boards[targetSide].forEach((minion, index) => {
+            if (
+              maxCost != null &&
+              Math.max(0, numberOr(minion.currentCost, numberOr(minion.cost, 0))) > maxCost
+            ) {
+              return;
+            }
             targets.push({ zone: "board", side: targetSide, index });
           });
         });
@@ -1417,13 +1588,16 @@
         });
       }
 
-      function legalAttackTargets(side) {
+      function legalAttackTargets(side, attacker) {
         const enemy = OTHER_SIDE[side];
         const guards = [];
         state.boards[enemy].forEach((minion, index) => {
           if (minion.guard) guards.push({ zone: "board", side: enemy, index });
         });
-        if (guards.length) return guards;
+        if (guards.length) {
+          const hasSnipe = Array.isArray(attacker?.keywords) && attacker.keywords.includes("저격");
+          return hasSnipe ? [{ zone: "hero", side: enemy }, ...guards] : guards;
+        }
         const targets = [{ zone: "hero", side: enemy }];
         state.boards[enemy].forEach((_minion, index) => {
           targets.push({ zone: "board", side: enemy, index });
@@ -1445,7 +1619,7 @@
         if (!attacker.canAttack || attacker.attacksLeft <= 0 || attacker.currentAttack <= 0) {
           return { ok: false, reason: "attacker_not_ready" };
         }
-        const legal = legalAttackTargets(side);
+        const legal = legalAttackTargets(side, attacker);
         const requestedTarget = findTarget(targetReference);
         const enemy = OTHER_SIDE[side];
         const guardTargets = state.boards[enemy]
@@ -1453,11 +1627,12 @@
             minion.guard ? { zone: "board", side: enemy, index } : null,
           )
           .filter(Boolean);
+        const hasSnipe = Array.isArray(attacker.keywords) && attacker.keywords.includes("저격");
         const blockedByGuard =
           guardTargets.length > 0 &&
           requestedTarget &&
           requestedTarget.side === enemy &&
-          (requestedTarget.zone === "hero" ||
+          ((requestedTarget.zone === "hero" && !hasSnipe) ||
             (requestedTarget.zone === "board" && !requestedTarget.entity.guard));
         if (blockedByGuard) {
           return {
@@ -1609,7 +1784,7 @@
         });
         state.boards[actor].forEach((minion, attackerIndex) => {
           if (!minion.canAttack || minion.attacksLeft <= 0 || minion.currentAttack <= 0) return;
-          legalAttackTargets(actor).forEach((target) => {
+          legalAttackTargets(actor, minion).forEach((target) => {
             actions.push({
               type: "attack",
               side: actor,

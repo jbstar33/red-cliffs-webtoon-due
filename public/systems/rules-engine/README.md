@@ -54,6 +54,34 @@ const game = createGame({
 { type: "endTurn", side }
 ```
 
+### 카드 키워드와 신규 효과
+
+`keywords`에 `"저격"`이 있는 장수는 적 전장에 `"수호"` 장수가 있어도 적
+지휘관을 직접 공격할 수 있습니다. 수호가 지키는 다른 비수호 장수까지 공격할 수
+있는 것은 아니며, 지휘관과 수호 장수만 법적 공격 대상으로 생성됩니다.
+
+적 장수 선택 효과는 카드 또는 능력의 `target`에 `"enemyMinion"`을 사용합니다.
+
+```js
+{ trigger: "onPlay", op: "steal_enemy_minion", target: "enemyMinion" }
+{
+  trigger: "onPlay",
+  op: "steal_enemy_minion_max_cost",
+  maxCost: 1,
+  target: "enemyMinion"
+}
+{ trigger: "onPlay", op: "grant_all_allies_armor", amount: 1 }
+```
+
+탈취한 장수는 상대 전장에서 아군 전장으로 이동하고 `controller`가 변경됩니다.
+이전의 공격권과 공격 봉쇄 상태는 제거되며, 즉시 공격할 수 없고 다음 아군 턴
+시작부터 정상적으로 공격할 수 있습니다. 아군 전장이 가득 찼거나 대상이 없으면
+효과만 불발되고, 비용 제한 효과는 `currentCost`를 우선해 검사합니다.
+
+`grant_all_allies_armor`는 효과 해결 시점의 아군 전장 전체에 장수 방어력을
+부여합니다. 장수 상태에는 같은 현재값을 나타내는 `armor`와 `currentArmor`가
+함께 기록되며, 방패가 없을 때 피해보다 먼저 소모됩니다.
+
 지휘관 능력은 정확히 다음 타입을 사용합니다.
 
 ```js

@@ -1082,11 +1082,57 @@
     여포: "qun_lu_bu",
   });
 
+  function fallbackPortraitArchetype(card) {
+    const id = String(getCardValue(card, "id", "wandering-general"));
+    const role = String(getCardValue(card, "role", "장수"));
+    const portrait = getCardValue(card, "portrait", {}) || {};
+    const weaponText = String(portrait.weapon || "");
+    const name = String(getCardValue(card, "name", ""));
+    const faction = String(getCardValue(card, "faction", ""));
+    const hash = hashString(id);
+    const feminine = /초선|대교|소교|화만|부인|여장/.test(`${name} ${role}`);
+    const strategist = /책사|모사|군사|참모|술사/.test(role);
+    const archer = /궁|활|노|저격/.test(`${role} ${weaponText}`);
+    const guardian = /수문|호위|방어|수호/.test(role);
+    const archetypes = strategist
+      ? ["feather-fan-strategist", "raven-fan-strategist", "young-fire-tactician"]
+      : archer
+        ? ["white-haired-archer", "female-archer", "river-raider"]
+        : guardian
+          ? ["gate-guardian", "twin-halberds-giant", "shielded-vanguard"]
+          : ["silver-lion-cavalier", "dragon-spear-rider", "book-and-sword", "river-raider"];
+    const factionStyle = FACTIONS[faction] || FACTIONS["군웅"];
+    const headgears = feminine
+      ? ["warrior-hairpin", "phoenix-crown", "silk-hairpin"]
+      : strategist
+        ? ["scholar-cap", "commander-cap", "soft-cap"]
+        : ["iron-helmet", "young-commander-crown", "lamellar-helm"];
+    const weapons = archer
+      ? ["bow", "longbow", "repeating-crossbow"]
+      : strategist
+        ? ["feather-fan", "scroll-sword", "raven-fan"]
+        : /도|검/.test(weaponText)
+          ? ["sword", "curved-blade", "twin-swords"]
+          : ["spear", "halberd", "heavy-mace"];
+    return {
+      archetype: feminine ? "female-archer" : archetypes[hash % archetypes.length],
+      scene: String(portrait.motif || `${faction}-war-camp`),
+      background: String(portrait.composition || `${faction}-standards`),
+      headgear: headgears[(hash >>> 3) % headgears.length],
+      weapon: weapons[(hash >>> 5) % weapons.length],
+      robe: String(factionStyle.primary || "#4c4a45"),
+      beard: feminine ? "none" : (hash & 1) ? "trim" : "short",
+      feminine,
+      facing: (hash & 2) ? 1 : -1,
+      tilt: ((hash % 9) - 4) * 0.025,
+    };
+  }
+
   function portraitArchetype(card) {
     const id = String(getCardValue(card, "id", ""));
     return PORTRAIT_ARCHETYPES[id]
       || PORTRAIT_ARCHETYPES[PORTRAIT_ID_BY_NAME[String(getCardValue(card, "name", ""))]]
-      || { archetype: "wandering-general", background: "war-banners", headgear: "iron-helmet", weapon: "spear", robe: "#4c4a45", beard: "trim" };
+      || fallbackPortraitArchetype(card);
   }
 
   function drawHistoricalScene(ctx, x, y, width, height, art, style, compact) {
@@ -8164,6 +8210,10 @@
     return { x, y, angle };
   }
 
+  function playerManaGeometry() {
+    return { cx: 1279, cy: 554, radius: 36, deckTop: 602 };
+  }
+
   function commanderIdentityRibbonGeometry(side) {
     return {
       x: LOGICAL_WIDTH / 2 - 66,
@@ -9250,6 +9300,11 @@
       return getCardValue(card, "target", "none") || "none";
     }
 
+    function cardHasKeyword(card, keyword) {
+      const keywords = getCardValue(card, "keywords", []) || [];
+      return Array.from(keywords).includes(keyword);
+    }
+
     function isTargetAllowed(target, selectedItem, state) {
       if (!target || !selectedItem || !state) return false;
       if (selectedItem.kind === "commander-power") {
@@ -9268,6 +9323,8 @@
         if (target.side !== "ai") return false;
         const guards = (state.boards && state.boards.ai || []).filter((minion) => minion.guard);
         if (guards.length > 0) {
+          const attacker = (state.boards && state.boards.player || [])[selectedItem.index];
+          if (target.zone === "hero" && cardHasKeyword(attacker, "저격")) return true;
           if (target.zone !== "board") return false;
           return Boolean((state.boards.ai[target.index] || {}).guard);
         }
@@ -9275,11 +9332,27 @@
       }
       if (selectedItem.kind !== "hand") return false;
       const card = (state.hands && state.hands.player || [])[selectedItem.index];
+      const abilities = getCardValue(card, "abilities", []) || [];
       const targetKind = cardTargetKind(card);
       if (targetKind === "none") return false;
       if (targetKind === "enemy" && target.side !== "ai") return false;
       if (targetKind === "friendly" && target.side !== "player") return false;
-      const abilities = getCardValue(card, "abilities", []) || [];
+      if (targetKind === "enemyMinion") {
+        if (target.side !== "ai" || target.zone !== "board") return false;
+        const targetMinion = (state.boards && state.boards.ai || [])[target.index];
+        if (!targetMinion) return false;
+        const constrainedSteal = abilities.find(
+          (ability) => ability.op === "steal_enemy_minion_max_cost",
+        );
+        if (constrainedSteal) {
+          const maxCost = Math.max(0, Number(constrainedSteal.maxCost || 0));
+          const targetCost = Number(
+            getCardValue(targetMinion, "currentCost", getCardValue(targetMinion, "cost", 0)),
+          );
+          if (targetCost > maxCost) return false;
+        }
+        return true;
+      }
       if (abilities.some((ability) => /buff_target/.test(ability.op || "")) && target.zone !== "board") {
         return false;
       }
@@ -9291,7 +9364,10 @@
       if (target.side !== "ai") return false;
       const guards = (state.boards && state.boards.ai || []).filter((minion) => minion.guard);
       if (guards.length === 0) return false;
-      if (target.zone === "hero") return true;
+      if (target.zone === "hero") {
+        const attacker = (state.boards && state.boards.player || [])[selectedItem.index];
+        return !cardHasKeyword(attacker, "저격");
+      }
       if (target.zone !== "board") return false;
       return !Boolean((state.boards.ai[target.index] || {}).guard);
     }
@@ -10111,11 +10187,22 @@
           });
         } else {
           ctx.textBaseline = "middle";
-          drawCenteredText(ctx, cardTacticalLabel(card), x + width / 2, textTop + textHeight / 2, {
-            font: `900 ${copyFontSize}px ${UI_FONT}`,
-            color: "#3d2718",
-            stroke: "rgba(255,247,220,.72)",
-            strokeWidth: Math.max(0.8, 1.1 * scale),
+          const tacticalLines = semanticTextLines(
+            ctx,
+            cardTacticalLabel(card),
+            width - 30 * scale,
+            2,
+          );
+          const tacticalLineHeight = Math.max(9, 10.5 * scale);
+          const tacticalStartY = textTop + textHeight / 2
+            - (tacticalLines.length - 1) * tacticalLineHeight / 2;
+          tacticalLines.forEach((line, index) => {
+            drawCenteredText(ctx, line, x + width / 2, tacticalStartY + index * tacticalLineHeight, {
+              font: `900 ${Math.max(7.5, copyFontSize - (tacticalLines.length > 1 ? 1 : 0))}px ${UI_FONT}`,
+              color: "#3d2718",
+              stroke: "rgba(255,247,220,.72)",
+              strokeWidth: Math.max(0.8, 1.1 * scale),
+            });
           });
         }
         ctx.restore();
@@ -10133,8 +10220,23 @@
 
       const attack = getCardValue(card, "currentAttack", getCardValue(card, "attack", 0));
       const health = getCardValue(card, "currentHealth", getCardValue(card, "health", 0));
+      const armor = Math.max(
+        0,
+        Number(getCardValue(card, "currentArmor", getCardValue(card, "armor", 0))) || 0,
+      );
       drawGem(ctx, x + 10 * scale, y + height - 9 * scale, Math.max(10, 12.5 * scale), attack, COLORS.attack, 0);
       drawGem(ctx, x + width - 10 * scale, y + height - 9 * scale, Math.max(10, 12.5 * scale), health, COLORS.health, 0);
+      if (armor > 0) {
+        drawGem(
+          ctx,
+          x + width - 11 * scale,
+          y + height - 34 * scale,
+          Math.max(8, 10 * scale),
+          armor,
+          COLORS.armor,
+          0,
+        );
+      }
       drawSeal(ctx, x + width - 12 * scale, y + 12 * scale, Math.max(15, 19 * scale), style.mark, style);
 
       if (getCardValue(card, "guard", false) || (getCardValue(card, "keywords", []) || []).includes("수호")) {
@@ -10815,39 +10917,56 @@
     function drawMana(hero, now) {
       const mana = Math.max(0, Number(hero && hero.mana || 0));
       const maxMana = Math.max(0, Number(hero && hero.maxMana || 0));
-      const x = 824;
-      const y = 637;
-      drawPanel(x, y, 252, 56, {
-        top: "rgba(22,35,42,.94)",
-        bottom: "rgba(10,18,25,.97)",
-        border: "#5981a0",
-        radius: 13,
-        shadowBlur: 9,
-      });
-      drawCenteredText(ctx, "기력", x + 30, y + 18, {
-        font: `800 12px ${SYSTEM_FONT}`,
-        color: "#b9d6e6",
-      });
-      drawCenteredText(ctx, `${mana} / ${maxMana}`, x + 30, y + 38, {
-        font: `900 17px ${UI_FONT}`,
-        color: "#e7f7ff",
-      });
+      const geometry = playerManaGeometry();
+      const { cx, cy, radius } = geometry;
+      ctx.save();
+      ctx.shadowColor = "rgba(43,157,220,.5)";
+      ctx.shadowBlur = 14;
+      ellipsePath(ctx, cx, cy, radius, radius);
+      const orb = ctx.createRadialGradient(cx - 11, cy - 13, 3, cx, cy, radius);
+      orb.addColorStop(0, "#76c9f0");
+      orb.addColorStop(0.38, "#286f9f");
+      orb.addColorStop(1, "#102a3d");
+      ctx.fillStyle = orb;
+      ctx.fill();
+      ctx.shadowBlur = 0;
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = "#b9e7fb";
+      ctx.stroke();
+      ctx.lineWidth = 1;
+      ctx.strokeStyle = "rgba(255,255,255,.52)";
+      ellipsePath(ctx, cx, cy, radius - 5, radius - 5);
+      ctx.stroke();
       for (let index = 0; index < 10; index += 1) {
-        const cx = x + 66 + index * 17.4;
         const active = index < mana;
         const unlocked = index < maxMana;
         const pulse = active && !reducedMotionQuery.matches ? Math.sin(now * 0.004 + index * 0.7) * 0.08 : 0;
-        ctx.save();
+        const angle = -Math.PI / 2 + index * TAU / 10;
+        const pipX = cx + Math.cos(angle) * 28;
+        const pipY = cy + Math.sin(angle) * 28;
         ctx.shadowColor = active ? "#78ccff" : "transparent";
         ctx.shadowBlur = active ? 7 : 0;
-        ellipsePath(ctx, cx, y + 28, 6.2 + pulse, 13 + pulse);
-        ctx.fillStyle = active ? "#3e99d6" : unlocked ? "#1d4a69" : "#181b20";
+        ellipsePath(ctx, pipX, pipY, 3.2 + pulse, 3.2 + pulse);
+        ctx.fillStyle = active ? "#dff7ff" : unlocked ? "#397fa8" : "#17222b";
         ctx.fill();
-        ctx.lineWidth = 1.4;
+        ctx.lineWidth = 0.9;
         ctx.strokeStyle = unlocked ? "#a9d8f2" : "#43484c";
         ctx.stroke();
-        ctx.restore();
       }
+      ctx.shadowBlur = 0;
+      drawCenteredText(ctx, `${mana}/${maxMana}`, cx, cy - 2, {
+        font: `900 17px ${UI_FONT}`,
+        color: "#f0fbff",
+        stroke: "#102437",
+        strokeWidth: 2,
+      });
+      drawCenteredText(ctx, "기력", cx, cy + 16, {
+        font: `800 9px ${SYSTEM_FONT}`,
+        color: "#c7e7f5",
+        stroke: "#102437",
+        strokeWidth: 2,
+      });
+      ctx.restore();
     }
 
     function drawDeck(side, count) {
@@ -11421,6 +11540,11 @@
         ["공격", getCardValue(card, "currentAttack", getCardValue(card, "attack", 0)), COLORS.attack],
         ["체력", getCardValue(card, "currentHealth", getCardValue(card, "health", 0)), COLORS.health],
       ];
+      const cardArmor = Math.max(
+        0,
+        Number(getCardValue(card, "currentArmor", getCardValue(card, "armor", 0))) || 0,
+      );
+      if (cardArmor > 0) stats.push(["방어", cardArmor, COLORS.armor]);
       stats.forEach((stat, index) => {
         const sy = panelY + 178 + index * 35;
         ellipsePath(ctx, metaX + 18, sy, 15, 15);
@@ -12187,6 +12311,7 @@
       shieldVisualState,
       boardSlotGeometry,
       playerHandLayoutGeometry,
+      playerManaGeometry,
       commanderIdentityRibbonGeometry,
       inspectionPanelGeometry,
       turnButtonGeometry,
@@ -12201,6 +12326,7 @@
       originalCardArtFocalPoint,
       originalCardArtSnapshot,
       drawOriginalCardArt,
+      fallbackPortraitArchetype,
       portraitArchetype,
       paintPortraitUncached,
       animeV11IdentityProfile,

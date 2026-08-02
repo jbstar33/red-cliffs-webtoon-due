@@ -203,6 +203,40 @@ test("ships a distinct procedural portrait archetype for every playable general"
   assert.doesNotMatch(source, /ctx\.lineTo\(cx \+ radius \* 0\.86, headY \+ radius \* 0\.18\)/);
 });
 
+test("derives stable role-aware portraits for newly added generals", () => {
+  const sandbox = { globalThis: {} };
+  vm.runInNewContext(source, sandbox, { filename: "board-ui/index.js" });
+  const hooks = sandbox.globalThis.TK.modules.boardUI.testHooks;
+  const pangTong = hooks.fallbackPortraitArchetype({
+    id: "shu_pang_tong",
+    name: "방통",
+    faction: "촉",
+    role: "책사",
+    portrait: { weapon: "연환 부채", motif: "봉추의 연환진" },
+  });
+  const xiahouYuan = hooks.fallbackPortraitArchetype({
+    id: "wei_xiahou_yuan",
+    name: "하후연",
+    faction: "위",
+    role: "명궁",
+    portrait: { weapon: "강궁" },
+  });
+  const diaoChan = hooks.fallbackPortraitArchetype({
+    id: "qun_diao_chan",
+    name: "초선",
+    faction: "군웅",
+    role: "무희",
+    portrait: { weapon: "비단 부채" },
+  });
+  assert.match(pangTong.archetype, /strategist|tactician/);
+  assert.match(xiahouYuan.weapon, /bow|crossbow/);
+  assert.equal(diaoChan.feminine, true);
+  assert.deepEqual(
+    { ...hooks.fallbackPortraitArchetype({ id: "shu_pang_tong", name: "방통", faction: "촉", role: "책사" }) },
+    { ...hooks.fallbackPortraitArchetype({ id: "shu_pang_tong", name: "방통", faction: "촉", role: "책사" }) },
+  );
+});
+
 test("keeps clicked inspection state until close or Escape and exposes it accessibly", () => {
   assert.match(source, /let inspection = null/);
   assert.match(source, /function openInspection\(hit, state\)/);
@@ -221,13 +255,27 @@ test("shows one concise tactical label on cards while previews keep full semanti
   assert.match(source, /const statsClearance = configCard\.preview \? 25 \* scale : 28 \* scale/);
   assert.match(source, /roundedRect\(ctx, x \+ 12 \* scale,[\s\S]{0,220}ctx\.clip\(\)/);
   assert.match(source, /if \(configCard\.preview\) \{[\s\S]{0,260}semanticTextLines\(ctx, cardCopy, width - 30 \* scale, 6\)/);
-  assert.match(source, /drawCenteredText\(ctx, cardTacticalLabel\(card\)/);
+  assert.match(source, /const tacticalLines = semanticTextLines\([\s\S]{0,120}cardTacticalLabel\(card\)[\s\S]{0,80}2/);
+  assert.match(source, /tacticalLines\.forEach/);
   assert.match(source, /getCardValue\(card, "summaryText", getCardValue\(card, "text", ""\)\)/);
   assert.match(source, /function inspectorTextLayout\(card, width, maxHeight\)/);
   assert.match(source, /const sizes = \[19, 18, 17, 16, 15, 14\]/);
   assert.match(source, /semanticTextLines\([\s\S]{0,80}content\.abilityText,[\s\S]{0,40}width,[\s\S]{0,20}99/);
   assert.match(source, /keywordDefinitions/);
   assert.match(source, /발동 · 키워드/);
+});
+
+test("places circular player mana above the deck and outside the hand wings", () => {
+  const sandbox = { globalThis: {} };
+  vm.runInNewContext(source, sandbox, { filename: "board-ui/index.js" });
+  const hooks = sandbox.globalThis.TK.modules.boardUI.testHooks;
+  const mana = hooks.playerManaGeometry();
+  assert.deepEqual({ ...mana }, { cx: 1279, cy: 554, radius: 36, deckTop: 602 });
+  assert.ok(mana.cy + mana.radius < mana.deckTop);
+  const rightmostHand = hooks.playerHandLayoutGeometry(10, 9);
+  assert.ok(rightmostHand.x + 58 < mana.cx - mana.radius);
+  assert.match(source, /const angle = -Math\.PI \/ 2 \+ index \* TAU \/ 10/);
+  assert.match(source, /drawCenteredText\(ctx, `\$\{mana\}\/\$\{maxMana\}`/);
 });
 
 test("semantic wrapping preserves every Korean word in Sima Yi's two effects", () => {
@@ -308,7 +356,7 @@ test("normalizes exact keyword glossary segments once across all nineteen inspec
   assert.equal(hooks.normalizeInspectorAbilityText(nearMiss, nearMissDetails), nearMiss.text);
 });
 
-test("integrates exact normalization with all twenty-seven production card-data texts and glossary", () => {
+test("integrates exact normalization with all fifty production card-data texts and glossary", () => {
   const sandbox = { globalThis: {} };
   vm.runInNewContext(source, sandbox, { filename: "board-ui/index.js" });
   vm.runInNewContext(cardDataSource, sandbox, { filename: "card-data/index.js" });
@@ -316,7 +364,7 @@ test("integrates exact normalization with all twenty-seven production card-data 
   const cardData = sandbox.globalThis.TK.modules.cardData;
   const cards = Array.from(cardData.getCards());
   const glossary = cardData.getKeywordGlossary();
-  assert.equal(cards.length, 27);
+  assert.equal(cards.length, 50);
   cards.forEach((card) => {
     const details = hooks.resolveCardKeywordDetails(card, glossary);
     const model = hooks.inspectorContentModel(card, details);
@@ -698,11 +746,14 @@ test("all production portraits and the Jiangdong token survive uncached preview,
     health: 1,
     cost: 0,
   };
-  assert.equal(cards.length, 27);
-  assert.equal(hooks.portraitArchetype(jiangdongMarine).archetype, "wandering-general");
+  assert.equal(cards.length, 50);
+  assert.ok(hooks.portraitArchetype(jiangdongMarine).archetype);
   assert.equal(hooks.portraitArchetype(nanmanBeast).archetype, "jungle-beast-horned");
-  assert.equal(hooks.portraitArchetype(partialMarineInstance).archetype, "wandering-general");
-  assert.equal(hooks.portraitArchetype(unregisteredPreview).archetype, "wandering-general");
+  assert.deepEqual(
+    hooks.portraitArchetype(partialMarineInstance),
+    hooks.portraitArchetype(jiangdongMarine),
+  );
+  assert.ok(hooks.portraitArchetype(unregisteredPreview).archetype);
   cards.forEach((card) => {
     assert.notEqual(
       hooks.portraitArchetype(card).archetype,
@@ -763,15 +814,29 @@ test("leaves spectacle drawing to fx while synchronizing board presentation snap
   assert.match(source, /gameEndRevealAt = now \+ GAME_END_REVEAL_DELAY/);
 });
 
-test("dispatches guard-blocked enemy clicks to the authoritative invalid path", () => {
+test("dispatches guard-blocked attacks while allowing snipers to target the commander", () => {
   assert.match(source, /function isGuardBlockedAttackTarget\(target, selectedItem, state\)/);
   assert.match(source, /if \(guards\.length === 0\) return false/);
-  assert.match(source, /if \(target\.zone === "hero"\) return true/);
+  assert.match(source, /target\.zone === "hero" && cardHasKeyword\(attacker, "저격"\)/);
+  assert.match(source, /return !cardHasKeyword\(attacker, "저격"\)/);
   assert.match(
     source,
     /if \(isGuardBlockedAttackTarget\(target, selection, state\)\) \{[\s\S]{0,180}type: "ATTACK"[\s\S]{0,100}cancelSelection\(\)/,
   );
   assert.match(source, /const color = allowed \? "#ffdd73" : "#ee644f"/);
+});
+
+test("restricts targeted steals to legal enemy board cards and Dong Zhuo's cost limit", () => {
+  assert.match(source, /targetKind === "enemyMinion"/);
+  assert.match(source, /target\.side !== "ai" \|\| target\.zone !== "board"/);
+  assert.match(source, /ability\.op === "steal_enemy_minion_max_cost"/);
+  assert.match(source, /if \(targetCost > maxCost\) return false/);
+});
+
+test("shows Pang Tong armor on board cards and in the inspector", () => {
+  assert.match(source, /getCardValue\(card, "currentArmor", getCardValue\(card, "armor", 0\)\)/);
+  assert.match(source, /if \(armor > 0\) \{[\s\S]{0,220}COLORS\.armor/);
+  assert.match(source, /if \(cardArmor > 0\) stats\.push\(\["방어", cardArmor, COLORS\.armor\]\)/);
 });
 
 test("renders four cached commander medallions with identity-specific portrait grammar", () => {
@@ -1340,7 +1405,7 @@ test("anime-cel v11 replaces the complete portrait construction and busts stale 
   assert.equal(new Set(identities.map((profile) => JSON.stringify(profile))).size, cards.length);
 });
 
-test("bundles one independently authored webtoon illustration for every playable card", () => {
+test("preserves premium art for the original roster and stable portraits for all playable cards", () => {
   assert.match(source, /const ORIGINAL_CARD_ART_VERSION = "original-webtoon-v1-20260731"/);
   assert.match(source, /function drawOriginalCardArt\(/);
   assert.match(source, /if \(drawOriginalCardArt\(ctx, x, y, width, height, card, compact\)\) return/);
@@ -1355,12 +1420,22 @@ test("bundles one independently authored webtoon illustration for every playable
   const cards = Array.from(sandbox.globalThis.TK.modules.cardData.getCards());
   const assetSources = cards.map((card) => boardModule.testHooks.originalCardArtSource(card));
 
-  assert.equal(cards.length, 27);
+  assert.equal(cards.length, 50);
   assert.equal(boardModule.originalCardArtVersion, "original-webtoon-v1-20260731");
-  assert.equal(new Set(assetSources).size, cards.length);
-  assert.ok(assetSources.every((asset) => asset.endsWith(`.jpg?v=${boardModule.originalCardArtVersion}`)));
+  const authoredCards = cards.filter((_, index) => assetSources[index]);
+  const generatedCards = cards.filter((_, index) => !assetSources[index]);
+  assert.equal(authoredCards.length, 27);
+  assert.equal(generatedCards.length, 23);
+  assert.equal(new Set(assetSources.filter(Boolean)).size, authoredCards.length);
+  assert.ok(assetSources.filter(Boolean).every(
+    (asset) => asset.endsWith(`.jpg?v=${boardModule.originalCardArtVersion}`),
+  ));
+  assert.equal(
+    new Set(generatedCards.map((card) => JSON.stringify(boardModule.testHooks.portraitArchetype(card)))).size,
+    generatedCards.length,
+  );
 
-  cards.forEach((card) => {
+  authoredCards.forEach((card) => {
     const artUrl = new URL(`../../art/cards/${card.id}.jpg`, import.meta.url);
     const artBytes = fs.readFileSync(artUrl);
     assert.ok(artBytes.length > 200_000, `${card.id} must retain premium illustration detail`);

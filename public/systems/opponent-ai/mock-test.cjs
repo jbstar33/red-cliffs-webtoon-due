@@ -120,6 +120,31 @@ function simulateFrom(state) {
           else target.currentHealth -= ability.amount;
         }
         if (ability.op === "gain_armor") next.heroes.ai.armor += ability.amount;
+        if (ability.op === "steal_enemy_minion") {
+          const stolen = next.boards.player.splice(action.target.index, 1)[0];
+          if (stolen) {
+            stolen.canAttack = false;
+            stolen.attacksLeft = 0;
+            next.boards.ai.push(stolen);
+          }
+        }
+        if (ability.op === "steal_enemy_minion_max_cost") {
+          const candidate = next.boards.player[action.target.index];
+          const candidateCost = Number(candidate && (candidate.currentCost ?? candidate.cost ?? 0));
+          if (candidate && candidateCost <= Number(ability.maxCost ?? 1)) {
+            const stolen = next.boards.player.splice(action.target.index, 1)[0];
+            stolen.canAttack = false;
+            stolen.attacksLeft = 0;
+            next.boards.ai.push(stolen);
+          }
+        }
+        if (ability.op === "grant_all_allies_armor") {
+          next.boards.ai.forEach((ally) => {
+            if (ally.instanceId !== `board-${played.id}`) {
+              ally.armor = Number(ally.armor || 0) + Number(ability.amount || 1);
+            }
+          });
+        }
       });
       resolveDeaths(next);
     } else if (action.type === "endTurn") {
@@ -374,6 +399,141 @@ function choose(state, actions, seed) {
     if (selected.type === "attack") wins += 1;
   }
   assert(wins >= 36, "AI should take productive combat actions in mock games");
+}
+
+{
+  const state = baseState();
+  state.heroes.player.health = 4;
+  state.boards.ai = [minion("shu_huang_zhong", 4, 3, { keywords: ["저격"] })];
+  state.boards.player = [minion("guard", 7, 2, { guard: true })];
+  const actions = [
+    { type: "attack", side: "ai", attackerIndex: 0, target: { zone: "board", side: "player", index: 0 } },
+    { type: "attack", side: "ai", attackerIndex: 0, target: { zone: "hero", side: "player" } },
+    { type: "endTurn", side: "ai" },
+  ];
+  const selected = choose(state, actions, "snipe-lethal");
+  assert.strictEqual(selected.target.zone, "hero", "sniper must bypass guard for lethal");
+}
+
+{
+  const state = baseState();
+  state.heroes.player.health = 8;
+  state.boards.ai = [minion("wei_xiahou_yuan", 4, 4, { keywords: ["저격"] })];
+  state.boards.player = [minion("small-guard", 1, 5, { guard: true })];
+  const actions = [
+    { type: "attack", side: "ai", attackerIndex: 0, target: { zone: "board", side: "player", index: 0 } },
+    { type: "attack", side: "ai", attackerIndex: 0, target: { zone: "hero", side: "player" } },
+    { type: "endTurn", side: "ai" },
+  ];
+  assert.strictEqual(
+    choose(state, actions, "snipe-pressure").target.zone,
+    "hero",
+    "sniper should value meaningful direct pressure through guard",
+  );
+}
+
+{
+  const state = baseState();
+  state.heroes.ai.mana = 4;
+  state.heroes.ai.maxMana = 6;
+  state.hands.ai = [card(
+    "qun_diao_chan",
+    4,
+    2,
+    3,
+    [{ trigger: "onPlay", op: "steal_enemy_minion", target: "enemyMinion" }],
+    "enemyMinion",
+  )];
+  state.boards.player = [
+    minion("cheap-scout", 1, 2, { cost: 1, currentCost: 1 }),
+    minion("elite-general", 6, 7, { cost: 6, currentCost: 6, guard: true }),
+  ];
+  const actions = [0, 1].map((index) => ({
+    type: "playCard",
+    side: "ai",
+    handIndex: 0,
+    target: { zone: "board", side: "player", index },
+  }));
+  actions.push({ type: "endTurn", side: "ai" });
+  const selected = choose(state, actions, "charm-value");
+  assert.strictEqual(selected.target.index, 1, "charm must steal the highest-value legal minion");
+
+  const hiddenVariant = copy(state);
+  state.hands.player = [card("hidden-a", 1, 9, 9)];
+  hiddenVariant.hands.player = [card("hidden-b", 9, 0, 1)];
+  assert.deepStrictEqual(
+    choose(state, actions, "no-hidden-cheating"),
+    choose(hiddenVariant, actions, "no-hidden-cheating"),
+    "AI choice must not depend on hidden enemy card identities",
+  );
+}
+
+{
+  const state = baseState();
+  state.heroes.ai.mana = 4;
+  state.heroes.ai.maxMana = 6;
+  state.hands.ai = [card(
+    "qun_dong_zhuo",
+    4,
+    4,
+    5,
+    [{ trigger: "onPlay", op: "steal_enemy_minion_max_cost", maxCost: 1, target: "enemyMinion" }],
+    "enemyMinion",
+  )];
+  state.boards.player = [
+    minion("one-cost-small", 1, 1, { cost: 1, currentCost: 1 }),
+    minion("one-cost-engine", 3, 4, {
+      cost: 1,
+      currentCost: 1,
+      abilities: [{ trigger: "onDeath", op: "draw", amount: 1 }],
+    }),
+    minion("illegal-two-cost", 8, 8, { cost: 2, currentCost: 2 }),
+  ];
+  const actions = [0, 1].map((index) => ({
+    type: "playCard",
+    side: "ai",
+    handIndex: 0,
+    target: { zone: "board", side: "player", index },
+  }));
+  actions.push({ type: "endTurn", side: "ai" });
+  const selected = choose(state, actions, "greed-value");
+  assert.strictEqual(selected.target.index, 1, "greed must take the best legal one-cost minion");
+  assert(actions.some((action) => JSON.stringify(action) === JSON.stringify(selected)));
+}
+
+{
+  const state = baseState();
+  state.heroes.ai.mana = 3;
+  state.heroes.ai.maxMana = 6;
+  state.boards.ai = [minion("armored-line", 5, 4)];
+  state.hands.ai = [
+    card(
+      "qun_pang_tong",
+      3,
+      2,
+      3,
+      [{ trigger: "onPlay", op: "grant_all_allies_armor", amount: 1 }],
+    ),
+    card("plain-body", 3, 2, 3),
+  ];
+  const actions = [
+    { type: "playCard", side: "ai", handIndex: 0 },
+    { type: "playCard", side: "ai", handIndex: 1 },
+    { type: "endTurn", side: "ai" },
+  ];
+  assert.strictEqual(
+    choose(state, actions, "linked-armor").handIndex,
+    0,
+    "linked armor should gain value when allies are already deployed",
+  );
+
+  const empty = copy(state);
+  empty.boards.ai = [];
+  assert.strictEqual(
+    choose(empty, actions, "linked-armor-empty").handIndex,
+    1,
+    "linked armor should not be wasted on an empty allied board",
+  );
 }
 
 {

@@ -5,11 +5,10 @@
   const PLAYER_SIDE = "player";
   const WIN_SCORE = 1000000000;
   const SCORE_EPSILON = 0.0001;
-  const REPLY_PLAN_LIMIT = 12;
-  const REPLY_COMBAT_NODE_LIMIT = 96;
-  const REPLY_DISRUPTION_NODE_LIMIT = 128;
-  const FULL_SIMULATION_TARGET = 6;
-  const FULL_SIMULATION_HARD_LIMIT = 8;
+  const REPLY_PLAN_LIMIT = 6;
+  const REPLY_COMBAT_NODE_LIMIT = 40;
+  const REPLY_DISRUPTION_NODE_LIMIT = 48;
+  const FULL_SIMULATION_TARGET = 2;
   const COMMANDER_POWER_ACTION = "USE_COMMANDER_POWER";
 
   function finite(value, fallback) {
@@ -138,6 +137,7 @@
           minion.instanceId || minion.id || "?",
           finite(minion.currentAttack, finite(minion.attack, 0)),
           finite(minion.currentHealth, finite(minion.health, 0)),
+          finite(minion.armor, 0),
           minion.shield ? 1 : 0,
           minion.guard ? 1 : 0,
           minion.attackLockPending ? 1 : 0,
@@ -160,6 +160,10 @@
 
   function hasShield(entity) {
     return Boolean(entity && (entity.shield || keywordList(entity).includes("방패")));
+  }
+
+  function hasSnipe(entity) {
+    return Boolean(entity && keywordList(entity).includes("저격"));
   }
 
   function abilitiesOf(entity) {
@@ -864,6 +868,9 @@
       summon_token: 3.1,
       reduce_random_hand_cost: 1.7,
       ready_random_friendly: 2.0,
+      steal_enemy_minion: 4.6,
+      grant_all_allies_armor: 2.4,
+      steal_enemy_minion_max_cost: 3.8,
     };
     let value = (values[ability.op] || 0.8) * amount;
     if (ability.attack || ability.health) {
@@ -878,6 +885,7 @@
     const attack = Math.max(0, finite(minion.currentAttack, finite(minion.attack, 0)));
     const health = Math.max(0, finite(minion.currentHealth, finite(minion.health, 0)));
     let value = attack * 1.72 + health * 1.18;
+    value += Math.max(0, finite(minion.armor, 0)) * 0.92;
     if (hasShield(minion)) value += 2.6 + attack * 0.18;
     if (hasGuard(minion)) value += 1.7 + health * 0.16;
     if (minion.canAttack && finite(minion.attacksLeft, 0) > 0) value += attack * 0.38;
@@ -962,6 +970,11 @@
     }
     if (target.zone === "board") {
       const board = state.boards && state.boards[target.side];
+      return board && board[Number(target.index)];
+    }
+    if (target.zone === "enemyMinion" || target.zone === "friendlyMinion") {
+      const side = target.side || (target.zone === "enemyMinion" ? PLAYER_SIDE : AI_SIDE);
+      const board = state.boards && state.boards[side];
       return board && board[Number(target.index)];
     }
     return null;
@@ -1207,8 +1220,13 @@
       const health = effectiveHealth(target);
       if (attack >= health) return WIN_SCORE * 0.72;
       const enemyBoard = boardOf(state, PLAYER_SIDE);
+      const bypassesGuard = hasSnipe(attacker) && enemyGuards(state, PLAYER_SIDE).length > 0;
       const totalReadyDamage = readyDamage(state, AI_SIDE);
       let value = attack * 1.05;
+      if (bypassesGuard) {
+        value += attack * 1.35;
+        if (health <= attack * 2) value += 12;
+      }
       if (!enemyBoard.length) value += 2.2;
       if (totalReadyDamage >= health) value += 80 + attack * 0.5;
       if (health <= 10) value += (11 - health) * 0.6;
@@ -1307,6 +1325,15 @@
           finite(ability.health, finite(ability.amount, 0)) * 0.85;
         value += target.side === AI_SIDE && target.zone === "board" ? buff : -20;
         if (target.side === AI_SIDE && entity.canAttack) value += finite(ability.attack, 0) * 0.65;
+      } else if (ability.op === "steal_enemy_minion") {
+        value += target.side === PLAYER_SIDE
+          ? 8 + minionValue(entity) * 1.35
+          : -40;
+      } else if (ability.op === "steal_enemy_minion_max_cost") {
+        const maxCost = Math.max(0, finite(ability.maxCost, 1));
+        const targetCost = Math.max(0, finite(entity.currentCost, finite(entity.cost, 0)));
+        if (target.side !== PLAYER_SIDE || targetCost > maxCost) value -= 60;
+        else value += 6 + minionValue(entity) * 1.28;
       }
     });
     if (
@@ -1344,6 +1371,19 @@
     let value = cost * 0.42;
     if (remaining === 0) value += 2.3;
     else if (remaining === 1) value += 0.8;
+    if (
+      remaining > 0 &&
+      hand.some((candidate, index) => {
+        if (index === Number(action.handIndex)) return false;
+        const candidateCost = Math.max(
+          0,
+          finite(candidate.currentCost, finite(candidate.cost, 0)),
+        );
+        return candidateCost <= remaining;
+      })
+    ) {
+      value += 3.2;
+    }
     if (friendlyBoard.length === 0) value += 1.3;
     if (friendlyBoard.length >= 4) value -= 1.1;
 
@@ -1408,6 +1448,14 @@
         );
         value += discountTargets.length ? 2.2 : -5;
         if (discountTargets.some((candidate) => FINISHER_IDS.has(entityId(candidate)))) value += 2.7;
+      } else if (ability.op === "grant_all_allies_armor") {
+        const protectedAllies = friendlyBoard.filter((minion) => healthOf(minion) > 0);
+        value += protectedAllies.length
+          ? protectedAllies.reduce(
+              (sum, minion) => sum + amount * (1.25 + Math.min(attackOf(minion), 6) * 0.1),
+              0,
+            )
+          : -8;
       }
     });
 
@@ -1557,13 +1605,11 @@
     if (action.type === "attack" && action.target && action.target.zone === "board") {
       const target = targetEntity(state, action.target);
       const attacker = boardOf(state, AI_SIDE)[Number(action.attackerIndex)];
-      return (
+      return Boolean(
         target &&
-        (
-          attackOf(target) >= 3 ||
+        (attackOf(target) >= 3 ||
           hasGuard(target) ||
-          (!hasShield(target) && attackOf(attacker) >= healthOf(target))
-        )
+          (!hasShield(target) && attackOf(attacker) >= healthOf(target))),
       );
     }
     if (action.type !== "playCard") return false;
@@ -1572,11 +1618,7 @@
     if (hasGuard(card)) return true;
     return abilitiesOf(card).some((ability) => {
       if (!ability || ability.trigger !== "onPlay") return false;
-      if (
-        ability.op === "heal_friendly_hero" ||
-        ability.op === "gain_armor" ||
-        ability.op === "damage_all_enemies"
-      ) {
+      if (["heal_friendly_hero", "gain_armor", "damage_all_enemies"].includes(ability.op)) {
         return true;
       }
       if (
@@ -1613,59 +1655,23 @@
       });
     const selected = new Map();
     const add = (candidate) => {
-      if (candidate) selected.set(candidate.key, candidate.action);
-    };
-    let capacity = FULL_SIMULATION_TARGET;
-    const addBest = (filter, limit) => {
-      let added = 0;
-      for (
-        let index = 0;
-        index < ranked.length && added < limit && selected.size < capacity;
-        index += 1
-      ) {
-        const candidate = ranked[index];
-        if (!filter(candidate.action) || selected.has(candidate.key)) continue;
-        add(candidate);
-        added += 1;
+      if (candidate && selected.size < FULL_SIMULATION_TARGET) {
+        selected.set(candidate.key, candidate.action);
       }
     };
-
-    ranked.forEach((candidate) => {
-      const action = candidate.action;
-      if (action.type === "endTurn" || immediateLethalCandidate(state, action)) add(candidate);
-      else if (
-        action.type === "attack" &&
-        action.target &&
-        action.target.zone === "hero"
-      ) {
-        add(candidate);
-      }
-    });
-    capacity = Math.max(
-      FULL_SIMULATION_TARGET,
-      Math.min(FULL_SIMULATION_HARD_LIMIT, selected.size),
-    );
-    addBest((action) => {
-      if (!action.target || action.target.zone !== "board") return false;
-      const target = targetEntity(state, action.target);
-      return target && hasGuard(target);
-    }, 4);
-    addBest((action) => requiredDefenseCandidate(state, action), 3);
-    addBest((action) => action.type === COMMANDER_POWER_ACTION, 3);
-
-    const bestTargetedByCard = new Map();
-    ranked.forEach((candidate) => {
-      const action = candidate.action;
-      if (action.type !== "playCard" || !action.target) return;
-      const handIndex = Number(action.handIndex);
-      if (!bestTargetedByCard.has(handIndex)) bestTargetedByCard.set(handIndex, candidate);
-    });
-    bestTargetedByCard.forEach((candidate) => {
-      if (selected.size < FULL_SIMULATION_TARGET) add(candidate);
-    });
+    const lethal = ranked.find((candidate) => immediateLethalCandidate(state, candidate.action));
+    add(lethal);
+    if (!lethal) {
+      add(ranked.find((candidate) => requiredDefenseCandidate(state, candidate.action)));
+      add(ranked.find((candidate) => {
+        if (candidate.action.type !== "playCard") return false;
+        return hasGuard(handOf(state, AI_SIDE)[Number(candidate.action.handIndex)]);
+      }));
+    }
     ranked.forEach((candidate) => {
       if (selected.size < FULL_SIMULATION_TARGET) add(candidate);
     });
+    add(ranked.find((candidate) => candidate.action.type === "endTurn"));
 
     return Array.from(selected.values());
   }
@@ -1810,7 +1816,18 @@
           evaluateCandidate(request, state, action, legalActions, salt, replyBaseline),
         )
         .sort(compareCandidates);
-      const endTurn = ranked.find((candidate) => candidate.action.type === "endTurn");
+      const simulatedEndTurn = ranked.find((candidate) => candidate.action.type === "endTurn");
+      const legalEndTurn = legalActions.find((action) => action.type === "endTurn");
+      const endTurn = simulatedEndTurn || (legalEndTurn
+        ? {
+            action: legalEndTurn,
+            key: actionKey(legalEndTurn),
+            score: tacticalScore(state, legalEndTurn, legalActions),
+            valid: true,
+            lethal: false,
+            tie: hashText(`${salt}|${actionKey(legalEndTurn)}`),
+          }
+        : null);
       const openingChoice = earlyTurn(state)
         ? selectEarlyCandidate(ranked, signature, history)
         : null;
@@ -1828,12 +1845,11 @@
         !endTurn &&
         selected.valid &&
         !selected.lethal &&
-        selected.action.type !== "endTurn" &&
+        selected.action.type !== "attack" &&
         selected.score < -6
       ) {
         return null;
       }
-
       history.add(selected.key);
       return clone(selected.action);
     }

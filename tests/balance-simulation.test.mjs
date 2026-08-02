@@ -78,7 +78,7 @@ function chooseHumanHeuristic(state, side, legalActions) {
   );
 }
 
-test("80 four-faction strategist PvE matches finish and exercise all 27 cards", async () => {
+test("80 four-faction strategist PvE matches finish and exercise all 50 cards", async () => {
   globalThis.TK = { modules: {} };
   await loadBrowserModule("../public/systems/card-data/index.js");
   await loadBrowserModule("../public/systems/rules-engine/index.js");

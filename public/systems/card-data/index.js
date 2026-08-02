@@ -4,10 +4,11 @@
   var KEYWORD_GLOSSARY = Object.freeze({
     돌진: "이 하수인은 출전한 턴에도 공격할 수 있습니다.",
     수호: "적은 수호 하수인이 하나라도 있으면 수호 하수인만 공격할 수 있습니다.",
-    방패: "이 하수인이 처음 받는 피해를 한 번 전부 막습니다."
+    방패: "이 하수인이 처음 받는 피해를 한 번 전부 막습니다.",
+    저격: "적 수호 하수인을 무시하고 적 영웅을 공격할 수 있습니다."
   });
   var KEYWORDS = Object.keys(KEYWORD_GLOSSARY);
-  var TARGETS = ["none", "enemy", "friendly", "any"];
+  var TARGETS = ["none", "enemy", "friendly", "any", "enemyMinion"];
   var TRIGGERS = ["onPlay", "onDeath"];
   var OPS = [
     "damage_target",
@@ -23,7 +24,10 @@
     "buff_self",
     "summon_token",
     "reduce_random_hand_cost",
-    "ready_random_friendly"
+    "ready_random_friendly",
+    "steal_enemy_minion",
+    "grant_all_allies_armor",
+    "steal_enemy_minion_max_cost"
   ];
 
   var TOKEN_SEEDS = [
@@ -194,7 +198,7 @@
       rarity: "영웅",
       role: "명궁",
       flavor: "노장의 화살은 세월보다 멀리 날아간다.",
-      keywords: [],
+      keywords: ["저격"],
       target: "enemy",
       abilities: [{ trigger: "onPlay", op: "damage_target", amount: 2 }],
       palette: { primary: "#A66D2D", secondary: "#E2D09A", glow: "#FFD36B" },
@@ -703,6 +707,178 @@
     }
   ];
 
+  CARD_SEEDS = CARD_SEEDS.concat([
+    {
+      id: "shu_pang_tong", name: "방통", courtesy: "사원", faction: "촉",
+      cost: 2, attack: 2, health: 3, rarity: "전설", role: "책사",
+      flavor: "한 줄의 쇠사슬로 흩어진 군세를 하나의 진으로 묶는다.",
+      keywords: [], target: "none",
+      abilities: [{ trigger: "onPlay", op: "grant_all_allies_armor", amount: 1 }],
+      palette: { primary: "#4E5B45", secondary: "#D4B96E", glow: "#9DE2A0" },
+      portrait: { motif: "봉황 깃과 이어진 철쇄", weapon: "연환책", temperament: "기이한 통찰" }
+    },
+    {
+      id: "shu_wei_yan", name: "위연", courtesy: "문장", faction: "촉",
+      cost: 2, attack: 3, health: 2, rarity: "영웅", role: "돌격장",
+      flavor: "험로를 먼저 넘어 적의 허리를 끊는다.", keywords: [], target: "none", abilities: [],
+      palette: { primary: "#783A32", secondary: "#C8A65A", glow: "#FF8D63" },
+      portrait: { motif: "험준한 잔도와 붉은 전포", weapon: "장도", temperament: "거침없는 야심" }
+    },
+    {
+      id: "shu_jiang_wei", name: "강유", courtesy: "백약", faction: "촉",
+      cost: 2, attack: 2, health: 3, rarity: "영웅", role: "계승자",
+      flavor: "스승의 뜻을 품고 북벌의 길을 다시 연다.", keywords: [], target: "none", abilities: [],
+      palette: { primary: "#446B63", secondary: "#D8D0A1", glow: "#8BE0CF" },
+      portrait: { motif: "별자리 군기와 펼친 병서", weapon: "녹침창", temperament: "집요한 충의" }
+    },
+    {
+      id: "shu_fa_zheng", name: "법정", courtesy: "효직", faction: "촉",
+      cost: 1, attack: 1, health: 1, rarity: "희귀", role: "모사",
+      flavor: "짧은 계책 하나가 익주의 문을 연다.", keywords: [], target: "none",
+      abilities: [{ trigger: "onDeath", op: "draw", amount: 1 }],
+      palette: { primary: "#485D4D", secondary: "#CABD86", glow: "#A5E29B" },
+      portrait: { motif: "익주 지도와 검은 죽간", weapon: "죽간", temperament: "날카로운 실리" }
+    },
+    {
+      id: "shu_liao_hua", name: "요화", courtesy: "원검", faction: "촉",
+      cost: 1, attack: 1, health: 2, rarity: "일반", role: "노장",
+      flavor: "촉의 첫 전열과 마지막 전열을 모두 지켰다.", keywords: ["수호"], target: "none", abilities: [],
+      palette: { primary: "#596847", secondary: "#BDA56B", glow: "#A7D47C" },
+      portrait: { motif: "해진 촉기와 오래된 갑주", weapon: "장창", temperament: "묵묵한 끈기" }
+    },
+    {
+      id: "wei_xiahou_yuan", name: "하후연", courtesy: "묘재", faction: "위",
+      cost: 3, attack: 3, health: 3, rarity: "영웅", role: "신속궁장",
+      flavor: "사흘 길을 하루에 달려 활시위로 전황을 바꾼다.", keywords: ["저격"], target: "none", abilities: [],
+      palette: { primary: "#344F6B", secondary: "#C7B06A", glow: "#75C8FF" },
+      portrait: { motif: "질풍의 기병과 푸른 화살", weapon: "강궁", temperament: "신속한 결단" }
+    },
+    {
+      id: "wei_yu_jin", name: "우금", courtesy: "문칙", faction: "위",
+      cost: 2, attack: 1, health: 4, rarity: "희귀", role: "진장",
+      flavor: "흐트러진 전열을 철벽 같은 군율로 세운다.", keywords: ["수호"], target: "none", abilities: [],
+      palette: { primary: "#40546A", secondary: "#AEB8C5", glow: "#7FA8D8" },
+      portrait: { motif: "정렬된 방패벽과 청색 깃발", weapon: "군도", temperament: "엄정한 규율" }
+    },
+    {
+      id: "wei_cao_ren", name: "조인", courtesy: "자효", faction: "위",
+      cost: 2, attack: 2, health: 3, rarity: "영웅", role: "성수",
+      flavor: "고립된 성도 그의 지휘 아래서는 무너지지 않는다.", keywords: ["수호"], target: "none", abilities: [],
+      palette: { primary: "#384D62", secondary: "#C3A96B", glow: "#7398C7" },
+      portrait: { motif: "높은 성루와 겹친 방패", weapon: "대도", temperament: "침착한 수비" }
+    },
+    {
+      id: "wei_xun_yu", name: "순욱", courtesy: "문약", faction: "위",
+      cost: 1, attack: 1, health: 1, rarity: "영웅", role: "왕좌지재",
+      flavor: "빈 성의 곡식과 인재를 헤아려 천하의 기반을 닦는다.", keywords: [], target: "none",
+      abilities: [{ trigger: "onDeath", op: "draw", amount: 1 }],
+      palette: { primary: "#526077", secondary: "#D8D3C3", glow: "#A8C9F0" },
+      portrait: { motif: "향로 연기와 정돈된 문서", weapon: "홀", temperament: "맑은 절개" }
+    },
+    {
+      id: "wei_li_dian", name: "이전", courtesy: "만성", faction: "위",
+      cost: 1, attack: 2, health: 1, rarity: "일반", role: "선봉",
+      flavor: "공을 다투기보다 전열의 빈틈을 먼저 메운다.", keywords: [], target: "none", abilities: [],
+      palette: { primary: "#3F5870", secondary: "#B8A77E", glow: "#77B4DE" },
+      portrait: { motif: "새벽 안개와 반쯤 든 군기", weapon: "장창", temperament: "겸손한 용기" }
+    },
+    {
+      id: "wu_taishi_ci", name: "태사자", courtesy: "자의", faction: "오",
+      cost: 2, attack: 2, health: 2, rarity: "영웅", role: "궁기병",
+      flavor: "두 자루 극과 활이 강동의 새벽을 가른다.", keywords: ["돌진"], target: "none", abilities: [],
+      palette: { primary: "#2E6670", secondary: "#C99B55", glow: "#67D8DF" },
+      portrait: { motif: "쌍극과 푸른 파도 깃발", weapon: "쌍극", temperament: "호쾌한 신의" }
+    },
+    {
+      id: "wu_cheng_pu", name: "정보", courtesy: "덕모", faction: "오",
+      cost: 2, attack: 2, health: 3, rarity: "희귀", role: "숙장",
+      flavor: "삼대의 깃발 아래 강동의 전열을 받쳐 왔다.", keywords: ["수호"], target: "none", abilities: [],
+      palette: { primary: "#35666A", secondary: "#D0B16D", glow: "#76D4CE" },
+      portrait: { motif: "낡은 범선과 세 겹 군기", weapon: "철척사모", temperament: "노련한 충성" }
+    },
+    {
+      id: "wu_da_qiao", name: "대교", courtesy: "", faction: "오",
+      cost: 1, attack: 1, health: 2, rarity: "희귀", role: "치유사",
+      flavor: "잔잔한 거문고 소리가 상처 입은 군심을 어루만진다.", keywords: [], target: "none",
+      abilities: [{ trigger: "onPlay", op: "heal_friendly_hero", amount: 1 }],
+      palette: { primary: "#7B4D68", secondary: "#E2C8B6", glow: "#F2A8CE" },
+      portrait: { motif: "연꽃 등불과 잔잔한 물결", weapon: "거문고", temperament: "온화한 품격" }
+    },
+    {
+      id: "wu_xiao_qiao", name: "소교", courtesy: "", faction: "오",
+      cost: 1, attack: 1, health: 1, rarity: "희귀", role: "악사",
+      flavor: "가벼운 현의 떨림 속에 다음 계책이 모습을 드러낸다.", keywords: [], target: "none",
+      abilities: [{ trigger: "onDeath", op: "draw", amount: 1 }],
+      palette: { primary: "#8A5271", secondary: "#E8C7A7", glow: "#FFAFD4" },
+      portrait: { motif: "매화 부채와 흐르는 비단", weapon: "비파", temperament: "명랑한 기지" }
+    },
+    {
+      id: "wu_zhou_tai", name: "주태", courtesy: "유평", faction: "오",
+      cost: 2, attack: 1, health: 3, rarity: "영웅", role: "호위",
+      flavor: "온몸의 상처가 주군을 지켜 낸 전투의 기록이다.", keywords: ["방패"], target: "none", abilities: [],
+      palette: { primary: "#315A5F", secondary: "#B47755", glow: "#63C6C9" },
+      portrait: { motif: "상처 난 갑주와 꺾이지 않은 오기", weapon: "환도", temperament: "헌신적인 강인함" }
+    },
+    {
+      id: "nanman_duo_si", name: "타사대왕", courtesy: "", faction: "남만",
+      cost: 1, attack: 1, health: 2, rarity: "희귀", role: "독사왕",
+      flavor: "늪의 안개 속에서 독과 길을 함께 다룬다.", keywords: [], target: "none", abilities: [],
+      palette: { primary: "#4B6239", secondary: "#B79B45", glow: "#9BDC5A" },
+      portrait: { motif: "독안개와 뱀가죽 관", weapon: "독장", temperament: "음험한 인내" }
+    },
+    {
+      id: "nanman_jinhuan_sanjie", name: "금환삼결", courtesy: "", faction: "남만",
+      cost: 1, attack: 2, health: 1, rarity: "일반", role: "부족장",
+      flavor: "황금 고리를 울리며 누구보다 먼저 협곡을 달린다.", keywords: [], target: "none", abilities: [],
+      palette: { primary: "#6A5433", secondary: "#D2A83E", glow: "#FFD05B" },
+      portrait: { motif: "황금 목고리와 협곡 먼지", weapon: "월도", temperament: "성급한 투지" }
+    },
+    {
+      id: "nanman_mang_ya_chang", name: "망아장", courtesy: "", faction: "남만",
+      cost: 2, attack: 2, health: 3, rarity: "희귀", role: "맹장",
+      flavor: "거친 돌창이 밀림의 방패벽을 단숨에 밀어낸다.", keywords: [], target: "none", abilities: [],
+      palette: { primary: "#665033", secondary: "#C67B38", glow: "#EEA34C" },
+      portrait: { motif: "코끼리 엄니와 갈라진 바위", weapon: "돌창", temperament: "완강한 힘" }
+    },
+    {
+      id: "nanman_hua_man", name: "화만", courtesy: "", faction: "남만",
+      cost: 2, attack: 2, health: 2, rarity: "영웅", role: "밀림 선봉",
+      flavor: "덩굴 사이를 날아 적이 눈치채기 전에 창을 겨눈다.", keywords: ["돌진"], target: "none", abilities: [],
+      palette: { primary: "#416044", secondary: "#D78B48", glow: "#89E16A" },
+      portrait: { motif: "꽃깃 머리띠와 휘어진 덩굴", weapon: "단창", temperament: "쾌활한 용맹" }
+    },
+    {
+      id: "nanman_dai_lai_dong_zhu", name: "대래동주", courtesy: "", faction: "남만",
+      cost: 2, attack: 1, health: 4, rarity: "희귀", role: "부족 수호자",
+      flavor: "큰 방패를 세워 밀림 부족의 퇴로를 지킨다.", keywords: [], target: "none", abilities: [],
+      palette: { primary: "#52633A", secondary: "#B98B43", glow: "#A8D967" },
+      portrait: { motif: "등나무 대방패와 부족 문양", weapon: "방패", temperament: "신중한 책임감" }
+    },
+    {
+      id: "qun_diao_chan", name: "초선", courtesy: "", faction: "군웅",
+      cost: 3, attack: 1, health: 3, rarity: "전설", role: "연환미인",
+      flavor: "달빛 아래의 한 걸음이 적의 충성을 흔든다.", keywords: [], target: "enemyMinion",
+      abilities: [{ trigger: "onPlay", op: "steal_enemy_minion", target: "enemyMinion" }],
+      palette: { primary: "#793C67", secondary: "#E9C7B2", glow: "#FF9ACD" },
+      portrait: { motif: "달빛과 흩날리는 모란", weapon: "칠보 부채", temperament: "우아한 결단" }
+    },
+    {
+      id: "qun_dong_zhuo", name: "동탁", courtesy: "중영", faction: "군웅",
+      cost: 3, attack: 2, health: 4, rarity: "전설", role: "폭군",
+      flavor: "욕망은 가장 약한 적부터 제 손안으로 끌어당긴다.", keywords: [], target: "enemyMinion",
+      abilities: [{ trigger: "onPlay", op: "steal_enemy_minion_max_cost", maxCost: 1, target: "enemyMinion" }],
+      palette: { primary: "#5A2830", secondary: "#C8A34D", glow: "#E95E45" },
+      portrait: { motif: "불타는 낙양과 금빛 술잔", weapon: "패검", temperament: "끝없는 탐욕" }
+    },
+    {
+      id: "qun_yuan_shao", name: "원소", courtesy: "본초", faction: "군웅",
+      cost: 2, attack: 2, health: 3, rarity: "영웅", role: "맹주",
+      flavor: "사세삼공의 깃발 아래 군웅의 첫 진을 모은다.", keywords: [], target: "none", abilities: [],
+      palette: { primary: "#6B435A", secondary: "#D6B55D", glow: "#D99BC2" },
+      portrait: { motif: "연합군의 금빛 대기와 높은 관", weapon: "의장검", temperament: "화려한 자신감" }
+    }
+  ]);
+
   var TACTICS_BY_ID = Object.freeze({
     shu_liu_bei: {
       identity: "초반 회복 선봉",
@@ -965,6 +1141,12 @@
           prefix +
           "이전 턴부터 전장에 있었고 이번 턴 이미 공격을 마친 무작위 다른 아군 하수인 하나를 다시 공격할 수 있게 합니다. 조건에 맞는 다른 아군이 없으면 발동하지 않습니다."
         );
+      case "steal_enemy_minion":
+        return prefix + "선택한 적 하수인 하나를 내 전장으로 가져옵니다. 가져온 하수인은 다음 내 턴부터 공격할 수 있습니다.";
+      case "grant_all_allies_armor":
+        return prefix + "모든 아군 하수인의 방어력을 +" + ability.amount + " 합니다.";
+      case "steal_enemy_minion_max_cost":
+        return prefix + "비용이 " + ability.maxCost + " 이하인 선택한 적 하수인 하나를 내 전장으로 가져옵니다.";
       default:
         return prefix + "알 수 없는 효과.";
     }
@@ -977,7 +1159,7 @@
     card.abilities.forEach(function abilityText(ability) {
       sentences.push(describeAbility(card, ability));
     });
-    return sentences.join(" ");
+    return sentences.length ? sentences.join(" ") : "능력 없음.";
   }
 
   function describeAbilitySummary(card, ability, includeTrigger) {
@@ -1055,6 +1237,12 @@
           prefix +
           "지난 턴부터 있던 공격 완료 다른 아군 1명 무작위로 다시 공격 가능"
         );
+      case "steal_enemy_minion":
+        return prefix + "적 하수인 1명 매혹(다음 턴 공격)";
+      case "grant_all_allies_armor":
+        return prefix + "모든 아군 방어력 +" + ability.amount;
+      case "steal_enemy_minion_max_cost":
+        return prefix + "비용 " + ability.maxCost + " 이하 적 하수인 1명 획득";
       default:
         return prefix + "알 수 없는 효과";
     }
@@ -1070,6 +1258,15 @@
       previousTrigger = ability.trigger;
     });
     return phrases.length ? phrases.join(" · ") : "능력 없음";
+  }
+
+  function expansionTactics(seed) {
+    return {
+      identity: seed.name + " " + seed.role + " 전술",
+      plan: "비용 " + seed.cost + " 구간에 배치해 전장 주도권을 확보합니다.",
+      combo: "같은 진영의 장수와 함께 운용해 비용 곡선을 안정시킵니다.",
+      counter: "효과와 능력치를 확인한 뒤 유리한 교환으로 대응합니다."
+    };
   }
 
   function materialize(seed) {
@@ -1093,7 +1290,7 @@
       }),
       tactics: TACTICS_BY_ID[seed.id]
         ? Object.assign({}, TACTICS_BY_ID[seed.id])
-        : null,
+        : expansionTactics(seed),
       palette: Object.assign({}, seed.palette),
       portrait: Object.assign({}, seed.portrait)
     };
@@ -1141,88 +1338,55 @@
 
   var DECK_RECIPES = Object.freeze({
     default: Object.freeze([
-      "shu_liu_bei",
       "shu_guan_yu",
-      "shu_zhang_fei",
-      "shu_zhao_yun",
       "shu_zhuge_liang",
-      "shu_huang_zhong",
-      "shu_ma_chao",
+      "shu_liu_bei",
+      "shu_pang_tong",
+      "shu_fa_zheng",
       "wei_cao_cao",
       "wei_sima_yi",
       "wei_xiahou_dun",
-      "wei_dian_wei",
-      "wei_zhang_liao",
       "wei_guo_jia",
+      "wei_xun_yu",
+      "wei_xiahou_yuan",
       "wu_sun_quan",
       "wu_zhou_yu",
-      "wu_gan_ning",
-      "wu_lu_meng",
       "wu_huang_gai",
       "wu_sun_shangxiang",
-      "qun_lu_bu"
+      "nanman_meng_huo",
+      "nanman_duo_si",
+      "qun_diao_chan",
+      "qun_dong_zhuo",
+      "qun_yuan_shao"
     ]),
     wei: Object.freeze([
-      "wei_cao_cao", "wei_cao_cao",
-      "wei_sima_yi", "wei_sima_yi",
-      "wei_xiahou_dun", "wei_xiahou_dun",
-      "wei_dian_wei", "wei_dian_wei",
-      "wei_zhang_liao", "wei_zhang_liao",
-      "wei_guo_jia", "wei_guo_jia",
-      "wei_xu_zhu", "wei_xu_zhu",
-      "shu_liu_bei",
-      "shu_huang_zhong",
-      "wu_huang_gai",
-      "wu_sun_shangxiang",
-      "wu_gan_ning",
-      "qun_lu_bu"
+      "wei_cao_cao", "wei_sima_yi", "wei_xiahou_dun", "wei_dian_wei",
+      "wei_zhang_liao", "wei_guo_jia", "wei_xu_zhu", "wei_xiahou_yuan",
+      "wei_yu_jin", "wei_cao_ren", "wei_xun_yu", "wei_li_dian",
+      "qun_diao_chan", "qun_dong_zhuo", "shu_fa_zheng", "shu_liao_hua",
+      "wu_da_qiao", "wu_xiao_qiao", "nanman_duo_si", "nanman_jinhuan_sanjie"
     ]),
     shu: Object.freeze([
-      "shu_liu_bei", "shu_liu_bei",
-      "shu_guan_yu", "shu_guan_yu",
-      "shu_zhang_fei", "shu_zhang_fei",
-      "shu_zhao_yun", "shu_zhao_yun",
-      "shu_zhuge_liang", "shu_zhuge_liang",
-      "shu_huang_zhong", "shu_huang_zhong",
-      "shu_ma_chao", "shu_ma_chao",
-      "wei_guo_jia",
-      "wei_xiahou_dun",
-      "wu_huang_gai",
-      "wu_sun_shangxiang",
-      "wu_gan_ning",
-      "qun_lu_bu"
+      "shu_liu_bei", "shu_guan_yu", "shu_zhang_fei", "shu_zhao_yun",
+      "shu_zhuge_liang", "shu_huang_zhong", "shu_ma_chao", "shu_pang_tong",
+      "shu_wei_yan", "shu_jiang_wei", "shu_fa_zheng", "shu_liao_hua",
+      "qun_lu_bu", "qun_yuan_shao", "wei_xun_yu", "wei_li_dian",
+      "wu_da_qiao", "wu_xiao_qiao", "nanman_duo_si", "nanman_jinhuan_sanjie"
     ]),
     wu: Object.freeze([
-      "wu_sun_quan", "wu_sun_quan",
-      "wu_zhou_yu", "wu_zhou_yu",
-      "wu_gan_ning", "wu_gan_ning",
-      "wu_lu_meng", "wu_lu_meng",
-      "wu_huang_gai", "wu_huang_gai",
-      "wu_sun_shangxiang", "wu_sun_shangxiang",
-      "wu_lu_xun", "wu_lu_xun",
-      "shu_liu_bei",
-      "shu_huang_zhong",
-      "wei_xiahou_dun",
-      "wei_guo_jia",
-      "shu_ma_chao",
-      "qun_lu_bu"
+      "wu_sun_quan", "wu_zhou_yu", "wu_gan_ning", "wu_lu_meng",
+      "wu_huang_gai", "wu_sun_shangxiang", "wu_lu_xun", "wu_taishi_ci",
+      "wu_cheng_pu", "wu_da_qiao", "wu_xiao_qiao", "wu_zhou_tai",
+      "qun_diao_chan", "qun_dong_zhuo", "shu_fa_zheng", "shu_liao_hua",
+      "wei_xun_yu", "wei_li_dian", "nanman_duo_si", "nanman_jinhuan_sanjie"
     ]),
     nanman: Object.freeze([
-      "nanman_meng_huo", "nanman_meng_huo",
-      "nanman_zhu_rong", "nanman_zhu_rong",
-      "nanman_wu_tu_gu", "nanman_wu_tu_gu",
-      "nanman_mu_lu", "nanman_mu_lu",
-      "nanman_a_hui_nan", "nanman_a_hui_nan",
-      "shu_liu_bei",
-      "shu_huang_zhong",
-      "shu_zhao_yun",
-      "wei_xiahou_dun",
-      "wei_guo_jia",
-      "wu_huang_gai",
-      "wu_sun_shangxiang",
-      "wu_gan_ning",
-      "wu_zhou_yu",
-      "qun_lu_bu"
+      "nanman_meng_huo", "nanman_zhu_rong", "nanman_wu_tu_gu", "nanman_mu_lu",
+      "nanman_a_hui_nan", "nanman_duo_si", "nanman_jinhuan_sanjie",
+      "nanman_mang_ya_chang", "nanman_hua_man", "nanman_dai_lai_dong_zhu",
+      "qun_lu_bu", "qun_diao_chan", "qun_dong_zhuo", "qun_yuan_shao",
+      "shu_fa_zheng", "shu_liao_hua", "wei_xun_yu", "wei_li_dian",
+      "wu_da_qiao", "wu_xiao_qiao"
     ])
   });
 
@@ -1291,7 +1455,8 @@
       "heal_friendly_hero",
       "draw",
       "gain_armor",
-      "reduce_random_hand_cost"
+      "reduce_random_hand_cost",
+      "grant_all_allies_armor"
     ];
     var needsStats = [
       "buff_target",
@@ -1325,6 +1490,19 @@
       (ability.count || 1) !== 1
     ) {
       errors.push(path + ": 현재 룰 엔진은 비용 감소 대상을 정확히 1장만 지원함");
+    }
+    if (
+      (ability.op === "steal_enemy_minion" ||
+        ability.op === "steal_enemy_minion_max_cost") &&
+      ability.target !== "enemyMinion"
+    ) {
+      errors.push(path + ": 탈취 효과의 target은 enemyMinion이어야 함");
+    }
+    if (
+      ability.op === "steal_enemy_minion_max_cost" &&
+      !isIntegerInRange(ability.maxCost, 0, 10)
+    ) {
+      errors.push(path + ": maxCost는 0~10 정수여야 함");
     }
   }
 
@@ -1378,7 +1556,12 @@
       });
     }
     var usesTarget = card.abilities.some(function targetedAbility(ability) {
-      return ability.op === "damage_target" || ability.op === "buff_target";
+      return (
+        ability.op === "damage_target" ||
+        ability.op === "buff_target" ||
+        ability.op === "steal_enemy_minion" ||
+        ability.op === "steal_enemy_minion_max_cost"
+      );
     });
     if (usesTarget && card.target === "none") {
       errors.push(card.id + ": 대상 효과에 target이 없음");
@@ -1403,6 +1586,15 @@
       card.target !== "any"
     ) {
       errors.push(card.id + ": 강화 대상은 friendly 또는 any여야 함");
+    }
+    if (
+      card.abilities.some(function stealTarget(ability) {
+        return ability.op === "steal_enemy_minion" ||
+          ability.op === "steal_enemy_minion_max_cost";
+      }) &&
+      card.target !== "enemyMinion"
+    ) {
+      errors.push(card.id + ": 탈취 대상은 enemyMinion이어야 함");
     }
     if (card.text !== describeCard(card)) {
       errors.push(card.id + ": 카드 텍스트가 효과 DSL과 일치하지 않음");
@@ -1523,6 +1715,7 @@
       if (keyword === "돌진") score += card.attack * 0.55;
       if (keyword === "수호") score += Math.min(2, card.health * 0.25);
       if (keyword === "방패") score += 1.6;
+      if (keyword === "저격") score += card.attack * 0.35;
     });
     card.abilities.forEach(function scoreAbility(ability) {
       var amount = ability.amount || 1;
@@ -1535,6 +1728,11 @@
       if (ability.op === "gain_armor") score += amount * 0.5;
       if (ability.op === "reduce_random_hand_cost") score += amount * 0.8;
       if (ability.op === "ready_random_friendly") score += 2.5;
+      if (ability.op === "steal_enemy_minion") score += 3;
+      if (ability.op === "grant_all_allies_armor") score += amount * 1.5;
+      if (ability.op === "steal_enemy_minion_max_cost") {
+        score += (ability.maxCost || 0) * 1.2;
+      }
       if (ability.op === "buff_target") {
         score += (ability.attack + ability.health) * 1.1;
       }
@@ -1649,18 +1847,18 @@
     });
     validateSummonGraph(errors);
 
-    if (CARDS.length !== 27) {
-      errors.push("카드 정의는 정확히 27장이어야 함");
+    if (CARDS.length !== 50) {
+      errors.push("카드 정의는 정확히 50장이어야 함");
     }
     var factions = factionCounts(CARDS);
     if (
-      factions["촉"] !== 7 ||
-      factions["위"] !== 7 ||
-      factions["오"] !== 7 ||
-      factions["남만"] !== 5 ||
-      factions["군웅"] !== 1
+      factions["촉"] !== 12 ||
+      factions["위"] !== 12 ||
+      factions["오"] !== 12 ||
+      factions["남만"] !== 10 ||
+      factions["군웅"] !== 4
     ) {
-      errors.push("진영 구성은 촉 7, 위 7, 오 7, 남만 5, 군웅 1이어야 함");
+      errors.push("진영 구성은 촉 12, 위 12, 오 12, 남만 10, 군웅 4여야 함");
     }
 
     var deck = buildDeck("validation-seed");
@@ -1718,7 +1916,7 @@
       if (selectedFactionCards < 10) {
         errors.push(recipeKey + " 진영 덱의 선택 진영 카드가 10장 미만임");
       }
-      if (recipeCheap < 3 || recipeEarly < 10) {
+      if (recipeCheap < 8 || recipeEarly < 14) {
         errors.push(recipeKey + " 진영 덱의 초·중반 비용 곡선이 부족함");
       }
     });
@@ -1734,34 +1932,37 @@
     var earlyCards = deck.filter(function earlyCard(id) {
       return CARD_BY_ID[id].cost <= 4;
     }).length;
-    if (cheapCards < 3) {
-      errors.push("초반 카드(비용 2 이하)가 3장 미만임");
+    if (cheapCards < 8) {
+      errors.push("초반 카드(비용 2 이하)가 기본 덱에 8장 미만임");
     }
-    if (earlyCards < 10) {
-      errors.push("중반 이전 카드(비용 4 이하)가 10장 미만임");
+    if (earlyCards < 14) {
+      errors.push("중반 이전 카드(비용 4 이하)가 기본 덱에 14장 미만임");
     }
     if (
       CARDS.filter(function exactOneCost(card) {
         return card.cost === 1;
-      }).length < 4
+      }).length < 10
     ) {
-      errors.push("첫 턴 선택지를 위한 1비용 카드가 4종 미만임");
+      errors.push("첫 턴 선택지를 위한 1비용 카드가 10종 미만임");
     }
     if (
-      !CARDS.some(function exactTwoCost(card) {
+      CARDS.filter(function exactTwoCost(card) {
         return card.cost === 2;
-      })
+      }).length < 10
     ) {
-      errors.push("2턴 선택지를 위한 2비용 카드가 없음");
+      errors.push("2턴 선택지를 위한 2비용 카드가 10종 미만임");
+    }
+    if (CARDS.filter(function lowCost(card) { return card.cost <= 2; }).length < 24) {
+      errors.push("전체 카드 중 비용 1~2 카드가 24종 미만임");
     }
 
     var sampleStats = sampleDeckStats(500);
     if (
-      sampleStats.averageDeckCost < 3.7 ||
-      sampleStats.averageDeckCost > 4.0
+      sampleStats.averageDeckCost < 2.8 ||
+      sampleStats.averageDeckCost > 3.2
     ) {
       errors.push(
-        "500시드 평균 덱 비용이 목표 범위(3.7~4.0)를 벗어남: " +
+        "500시드 평균 덱 비용이 목표 범위(2.8~3.2)를 벗어남: " +
           sampleStats.averageDeckCost
       );
     }

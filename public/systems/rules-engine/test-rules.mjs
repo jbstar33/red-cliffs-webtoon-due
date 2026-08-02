@@ -141,6 +141,73 @@ const definitions = [
     target: "none",
     abilities: [],
   },
+  {
+    id: "sniper",
+    name: "노련한 명궁",
+    faction: "촉",
+    cost: 0,
+    attack: 2,
+    health: 2,
+    keywords: ["저격"],
+    target: "none",
+    abilities: [],
+  },
+  {
+    id: "charmer",
+    name: "매혹의 무희",
+    faction: "군웅",
+    cost: 0,
+    attack: 1,
+    health: 2,
+    keywords: [],
+    target: "enemyMinion",
+    abilities: [
+      { trigger: "onPlay", op: "steal_enemy_minion", target: "enemyMinion" },
+    ],
+  },
+  {
+    id: "crowded-charmer",
+    name: "만석의 매혹",
+    faction: "군웅",
+    cost: 0,
+    attack: 1,
+    health: 2,
+    keywords: [],
+    target: "enemyMinion",
+    abilities: [
+      { trigger: "onPlay", op: "summon_token", tokenId: "militia", count: 4 },
+      { trigger: "onPlay", op: "steal_enemy_minion", target: "enemyMinion" },
+    ],
+  },
+  {
+    id: "chain-armor",
+    name: "연환술 시험",
+    faction: "군웅",
+    cost: 0,
+    attack: 1,
+    health: 2,
+    keywords: [],
+    target: "none",
+    abilities: [{ trigger: "onPlay", op: "grant_all_allies_armor", amount: 1 }],
+  },
+  {
+    id: "greedy",
+    name: "탐욕의 군주",
+    faction: "군웅",
+    cost: 0,
+    attack: 1,
+    health: 2,
+    keywords: [],
+    target: "enemyMinion",
+    abilities: [
+      {
+        trigger: "onPlay",
+        op: "steal_enemy_minion_max_cost",
+        maxCost: 1,
+        target: "enemyMinion",
+      },
+    ],
+  },
 ];
 
 const tokens = [
@@ -413,6 +480,245 @@ function testTargetingGuardShieldAndCombat() {
   assert.equal(attackStart.detail.weapon, "화염 깃털부채");
   const heroDamage = events.find((event) => event.type === "hero:damage");
   assert.deepEqual(heroDamage.detail.target, { zone: "hero", side: "ai" });
+}
+
+function testSnipeBypassesGuardForCommanderOnly() {
+  const game = createGame({
+    definitions,
+    tokens,
+    playerDeck: deckOf("sniper"),
+    aiDeck: deckOf("guardian"),
+    seed: 331,
+  });
+  playFirst(game, "playCard");
+  game.endTurn("player");
+  playFirst(game, "playCard");
+  game.endTurn("ai");
+
+  const attacks = game
+    .getLegalActions()
+    .filter((action) => action.type === "attack" && action.attackerIndex === 0);
+  assert.ok(
+    attacks.some((action) => action.target.zone === "hero" && action.target.side === "ai"),
+    "저격 장수는 수호를 무시하고 적 지휘관을 지정할 수 있어야 한다",
+  );
+  assert.ok(
+    attacks.some((action) => action.target.zone === "board" && action.target.index === 0),
+    "저격 장수도 적 수호 장수를 정상 공격할 수 있어야 한다",
+  );
+  assert.equal(
+    game.attack("player", 0, { zone: "hero", side: "ai" }).ok,
+    true,
+  );
+  assert.equal(game.getState().heroes.ai.health, 28);
+}
+
+function testStealEnemyMinionAndDelayedAttack() {
+  const events = [];
+  const game = createGame({
+    definitions,
+    tokens,
+    playerDeck: deckOf("charmer"),
+    aiDeck: deckOf("charger"),
+    seed: 332,
+    emit: (type, detail) => events.push({ type, detail }),
+  });
+  game.endTurn("player");
+  playFirst(game, "playCard");
+  const stolenInstanceId = game.getState().boards.ai[0].instanceId;
+  game.endTurn("ai");
+
+  const handIndex = game.getState().hands.player.findIndex((card) => card.id === "charmer");
+  const wrongTarget = game.playCard("player", handIndex, { zone: "hero", side: "ai" });
+  assert.equal(wrongTarget.ok, false);
+  assert.equal(wrongTarget.error, "invalid_target");
+
+  const stealAction = game
+    .getLegalActions()
+    .find(
+      (action) =>
+        action.type === "playCard" &&
+        action.handIndex === handIndex &&
+        action.target?.zone === "board" &&
+        action.target.side === "ai",
+    );
+  assert.ok(stealAction);
+  assert.equal(game.applyAction(stealAction).ok, true);
+
+  let state = game.getState();
+  assert.equal(state.boards.ai.length, 0);
+  const stolenIndex = state.boards.player.findIndex(
+    (minion) => minion.instanceId === stolenInstanceId,
+  );
+  assert.notEqual(stolenIndex, -1);
+  assert.equal(state.boards.player[stolenIndex].controller, "player");
+  assert.equal(state.boards.player[stolenIndex].canAttack, false);
+  assert.equal(state.boards.player[stolenIndex].attacksLeft, 0);
+  assert.equal(
+    game.attack("player", stolenIndex, { zone: "hero", side: "ai" }).error,
+    "attacker_not_ready",
+  );
+
+  const stealEffect = events.find(
+    (event) => event.type === "effect:trigger" && event.detail.op === "steal_enemy_minion",
+  );
+  assert.ok(stealEffect);
+  assertCompleteEffectPayload(stealEffect.detail);
+  assert.equal(stealEffect.detail.result.stolenTarget.instanceId, stolenInstanceId);
+  assert.equal(stealEffect.detail.result.stolenTarget.from.side, "ai");
+  assert.equal(stealEffect.detail.result.stolenTarget.to.side, "player");
+  assert.equal(stealEffect.detail.result.stolenTarget.canAttack, false);
+
+  game.endTurn("player");
+  game.endTurn("ai");
+  state = game.getState();
+  const readyIndex = state.boards.player.findIndex(
+    (minion) => minion.instanceId === stolenInstanceId,
+  );
+  assert.equal(state.boards.player[readyIndex].canAttack, true);
+  assert.ok(
+    game
+      .getLegalActions()
+      .some((action) => action.type === "attack" && action.attackerIndex === readyIndex),
+  );
+}
+
+function testStealBoardCapacityAndMaxCostValidation() {
+  const crowdedEvents = [];
+  const crowdedGame = createGame({
+    definitions,
+    tokens,
+    playerDeck: deckOf("crowded-charmer"),
+    aiDeck: deckOf("charger"),
+    seed: 333,
+    emit: (type, detail) => crowdedEvents.push({ type, detail }),
+  });
+  crowdedGame.endTurn("player");
+  playFirst(crowdedGame, "playCard");
+  crowdedGame.endTurn("ai");
+  playFirst(crowdedGame, "playCard");
+  const crowdedState = crowdedGame.getState();
+  assert.equal(crowdedState.boards.player.length, constants.BOARD_LIMIT);
+  assert.equal(crowdedState.boards.ai.length, 1, "보드가 가득 차면 대상은 적 보드에 남아야 한다");
+  const boardFullEffect = crowdedEvents.find(
+    (event) => event.type === "effect:trigger" && event.detail.op === "steal_enemy_minion",
+  );
+  assert.ok(boardFullEffect);
+  assertCompleteEffectPayload(boardFullEffect.detail);
+  assert.equal(boardFullEffect.detail.result.fizzled, true);
+  assert.equal(boardFullEffect.detail.result.reason, "board_full");
+
+  const expensiveGame = createGame({
+    definitions,
+    tokens,
+    playerDeck: deckOf("greedy"),
+    aiDeck: deckOf("expensive"),
+    seed: 334,
+  });
+  for (let loop = 0; loop < 12 && expensiveGame.getState().boards.ai.length === 0; loop += 1) {
+    const side = expensiveGame.getState().turn;
+    const play = expensiveGame.getLegalActions().find((action) => action.type === "playCard");
+    if (side === "ai" && play) expensiveGame.applyAction(play);
+    expensiveGame.endTurn(side);
+  }
+  assert.equal(expensiveGame.getState().boards.ai[0].id, "expensive");
+  assert.equal(
+    expensiveGame.getLegalActions().some((action) => action.type === "playCard"),
+    false,
+    "탐욕은 비용 제한을 넘는 장수를 법적 대상으로 내놓지 않아야 한다",
+  );
+  const greedyIndex = expensiveGame
+    .getState()
+    .hands.player.findIndex((card) => card.id === "greedy");
+  const expensiveAttempt = expensiveGame.playCard("player", greedyIndex, {
+    zone: "board",
+    side: "ai",
+    index: 0,
+  });
+  assert.equal(expensiveAttempt.ok, false);
+  assert.equal(expensiveAttempt.error, "invalid_target");
+
+  const lowCostEvents = [];
+  const lowCostGame = createGame({
+    definitions,
+    tokens,
+    playerDeck: deckOf("greedy"),
+    aiDeck: deckOf("charger"),
+    seed: 335,
+    emit: (type, detail) => lowCostEvents.push({ type, detail }),
+  });
+  lowCostGame.endTurn("player");
+  playFirst(lowCostGame, "playCard");
+  lowCostGame.endTurn("ai");
+  playFirst(lowCostGame, "playCard");
+  const lowCostState = lowCostGame.getState();
+  assert.equal(lowCostState.boards.ai.length, 0);
+  assert.ok(lowCostState.boards.player.some((minion) => minion.id === "charger"));
+  const greedyEffect = lowCostEvents.find(
+    (event) =>
+      event.type === "effect:trigger" &&
+      event.detail.op === "steal_enemy_minion_max_cost",
+  );
+  assert.ok(greedyEffect);
+  assertCompleteEffectPayload(greedyEffect.detail);
+  assert.equal(greedyEffect.detail.result.maxCost, 1);
+  assert.equal(greedyEffect.detail.result.targetCost, 1);
+}
+
+function testGrantAllAlliesArmorAndDamageAbsorption() {
+  const events = [];
+  const game = createGame({
+    definitions,
+    tokens,
+    playerDeck: deckOf("chain-armor"),
+    aiDeck: deckOf("charger"),
+    seed: 336,
+    emit: (type, detail) => events.push({ type, detail }),
+  });
+  playFirst(game, "playCard");
+  playFirst(game, "playCard");
+  let state = game.getState();
+  assert.equal(state.boards.player[0].currentArmor, 2);
+  assert.equal(state.boards.player[0].armor, 2);
+  assert.equal(state.boards.player[1].currentArmor, 1);
+  assert.equal(state.boards.player[1].armor, 1);
+
+  const armorEffects = events.filter(
+    (event) =>
+      event.type === "effect:trigger" && event.detail.op === "grant_all_allies_armor",
+  );
+  assert.equal(armorEffects.length, 2);
+  armorEffects.forEach((event) => assertCompleteEffectPayload(event.detail));
+  assert.equal(armorEffects[1].detail.result.actualArmorGranted, 2);
+  assert.equal(armorEffects[1].detail.result.affectedTargets.length, 2);
+
+  game.endTurn("player");
+  playFirst(game, "playCard");
+  const armoredInstanceId = state.boards.player[0].instanceId;
+  const attack = game
+    .getLegalActions()
+    .find(
+      (action) =>
+        action.type === "attack" &&
+        action.target.zone === "board" &&
+        action.target.index === 0,
+    );
+  assert.ok(attack);
+  assert.equal(game.applyAction(attack).ok, true);
+  state = game.getState();
+  const armored = state.boards.player.find(
+    (minion) => minion.instanceId === armoredInstanceId,
+  );
+  assert.equal(armored.currentHealth, 2);
+  assert.equal(armored.currentArmor, 0);
+  const absorbed = events.find(
+    (event) =>
+      event.type === "minion:damage" &&
+      event.detail.instanceId === armoredInstanceId &&
+      event.detail.armorAbsorbed === 2,
+  );
+  assert.ok(absorbed);
+  assert.equal(absorbed.detail.actualDamage, 0);
 }
 
 function testAttackingShieldMinionBlocksRetaliation() {
@@ -1610,6 +1916,10 @@ function testCompleteTwentyCardBattle() {
 testInitialStateAndSnapshotIsolation();
 testTurnManaSummoningAndBoardLimit();
 testTargetingGuardShieldAndCombat();
+testSnipeBypassesGuardForCommanderOnly();
+testStealEnemyMinionAndDelayedAttack();
+testStealBoardCapacityAndMaxCostValidation();
+testGrantAllAlliesArmorAndDamageAbsorption();
 testAttackingShieldMinionBlocksRetaliation();
 testDslSummonsDrawBuffAndDeath();
 testRemainingDslOperators();
