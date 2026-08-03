@@ -292,6 +292,7 @@
             requires_solo: "다른 아군이 있음",
             faction_link_missing: "같은 진영 아군 없음",
             no_draw_requested: "뽑을 카드 없음",
+            not_enough_enemy_minions: "적 장수 2명 미만",
             unsupported_op: "지원하지 않는 효과",
           };
           return `${cardName}: 효과 불발 · ${reasons[result.reason] || "조건 불충족"}`;
@@ -356,6 +357,11 @@
           }`;
         }
         if (detail.op === "duel_target") return `${cardName}: 일기토 발동`;
+        if (detail.op === "sow_discord") {
+          return `${cardName}: 반간계 · ${result.weakestName || "약한 적"}이 ${
+            result.strongestName || "강한 적"
+          }을 공격`;
+        }
         if (detail.op === "weaken_enemy_front") return `${cardName}: 적 전열 공격력 약화`;
         if (detail.op === "empty_fort") return `${cardName}: 공성계 준비`;
         if (detail.op === "patience_counter") return `${cardName}: 반계 준비`;
@@ -377,6 +383,8 @@
           "card:play": `${actor === "player" ? "아군" : "적군"}이 카드를 냈습니다.`,
           "attack:start": "공격을 시작합니다.",
           "attack:hit": "공격이 적중했습니다.",
+          "discord:start": "반간계로 적진이 흔들립니다.",
+          "discord:hit": "적 장수끼리 충돌했습니다.",
           "minion:damage": "장수가 피해를 입었습니다.",
           "hero:damage": "지휘관이 피해를 입었습니다.",
           "minion:death": "장수가 전장을 떠났습니다.",
@@ -1010,6 +1018,42 @@
         return result;
       }
 
+      function discordStrength(minion) {
+        return (
+          Math.max(0, numberOr(minion?.currentAttack, minion?.attack)) +
+          Math.max(0, numberOr(minion?.currentHealth, minion?.health))
+        );
+      }
+
+      function discordPair(side) {
+        const entries = state.boards[side].map((minion, index) => ({
+          minion,
+          index,
+          strength: discordStrength(minion),
+          attack: Math.max(0, numberOr(minion.currentAttack, minion.attack)),
+          health: Math.max(0, numberOr(minion.currentHealth, minion.health)),
+          cost: Math.max(0, numberOr(minion.currentCost, minion.cost)),
+        }));
+        if (entries.length < 2) return null;
+        const weakest = entries.slice().sort((left, right) =>
+          left.strength - right.strength ||
+          left.attack - right.attack ||
+          left.health - right.health ||
+          left.cost - right.cost ||
+          left.index - right.index,
+        )[0];
+        const strongest = entries
+          .filter((entry) => entry.minion.instanceId !== weakest.minion.instanceId)
+          .sort((left, right) =>
+            right.strength - left.strength ||
+            right.attack - left.attack ||
+            right.health - left.health ||
+            right.cost - left.cost ||
+            left.index - right.index,
+          )[0];
+        return { weakest, strongest };
+      }
+
       function previewAbility(side, source, ability, context, amount, op) {
         const enemy = OTHER_SIDE[side];
         const preview = {
@@ -1053,6 +1097,36 @@
             );
             preview.result.targetName = preview.selected.entity.name || "대상 장수";
             preview.result.sourceIndex = sourceIndex;
+          }
+        } else if (op === "sow_discord") {
+          const pair = discordPair(enemy);
+          if (!pair) {
+            preview.result.success = false;
+            preview.result.fizzled = true;
+            preview.result.reason = "not_enough_enemy_minions";
+          } else {
+            const weakestTarget = {
+              zone: "board",
+              side: enemy,
+              index: pair.weakest.index,
+              instanceId: pair.weakest.minion.instanceId,
+            };
+            const strongestTarget = {
+              zone: "board",
+              side: enemy,
+              index: pair.strongest.index,
+              instanceId: pair.strongest.minion.instanceId,
+            };
+            preview.selected = pair;
+            preview.target = strongestTarget;
+            preview.result.weakestName = pair.weakest.minion.name || "약한 적 장수";
+            preview.result.strongestName = pair.strongest.minion.name || "강한 적 장수";
+            preview.result.weakest = weakestTarget;
+            preview.result.strongest = strongestTarget;
+            preview.result.weakestStrength = pair.weakest.strength;
+            preview.result.strongestStrength = pair.strongest.strength;
+            preview.result.damageToStrongest = pair.weakest.attack;
+            preview.result.damageToWeakest = pair.strongest.attack;
           }
         } else if (op === "damage_enemy_hero") {
           preview.target = { zone: "hero", side: enemy };
@@ -1454,6 +1528,69 @@
               sourceSurvived,
               targetDied,
               readied: sourceSurvived && targetDied,
+            });
+          }
+        } else if (op === "sow_discord") {
+          const weakestMinion = preview.selected?.weakest?.minion;
+          const strongestMinion = preview.selected?.strongest?.minion;
+          if (weakestMinion && strongestMinion) {
+            const weakestReference = deepClone(preview.result.weakest);
+            const strongestReference = deepClone(preview.result.strongest);
+            const weakestAttack = Math.max(
+              0,
+              numberOr(weakestMinion.currentAttack, weakestMinion.attack),
+            );
+            const strongestAttack = Math.max(
+              0,
+              numberOr(strongestMinion.currentAttack, strongestMinion.attack),
+            );
+            publish("discord:start", {
+              actor: side,
+              cardSource: source
+                ? { id: source.id, instanceId: source.instanceId, name: source.name || "" }
+                : null,
+              source: weakestReference,
+              target: strongestReference,
+              weakestName: weakestMinion.name || "약한 적 장수",
+              strongestName: strongestMinion.name || "강한 적 장수",
+              sourceAttack: weakestAttack,
+              targetAttack: strongestAttack,
+            });
+            const ownsDeathBatch = !resolvingDeaths;
+            if (ownsDeathBatch) resolvingDeaths = true;
+            let damageToStrongest = 0;
+            let damageToWeakest = 0;
+            try {
+              damageToStrongest = damageMinion(enemy, strongestMinion, weakestAttack, {
+                side: enemy,
+                instanceId: weakestMinion.instanceId,
+                op: "discord",
+              });
+              damageToWeakest = damageMinion(enemy, weakestMinion, strongestAttack, {
+                side: enemy,
+                instanceId: strongestMinion.instanceId,
+                op: "discord_retaliation",
+              });
+            } finally {
+              if (ownsDeathBatch) resolvingDeaths = false;
+            }
+            if (ownsDeathBatch) resolveDeaths();
+            const weakestDied = !state.boards[enemy].some(
+              (minion) => minion.instanceId === weakestMinion.instanceId,
+            );
+            const strongestDied = !state.boards[enemy].some(
+              (minion) => minion.instanceId === strongestMinion.instanceId,
+            );
+            publish("discord:hit", {
+              actor: side,
+              source: weakestReference,
+              target: strongestReference,
+              weakestName: weakestMinion.name || "약한 적 장수",
+              strongestName: strongestMinion.name || "강한 적 장수",
+              damageToStrongest,
+              damageToWeakest,
+              weakestDied,
+              strongestDied,
             });
           }
         } else if (op === "damage_enemy_hero") {

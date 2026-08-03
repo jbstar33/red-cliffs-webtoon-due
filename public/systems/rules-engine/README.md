@@ -73,6 +73,7 @@ const game = createGame({
 ```js
 { trigger: "onPlay", op: "faction_link", linkKind: "brotherhood" }
 { trigger: "onPlay", op: "duel_target", target: "enemyMinion" }
+{ trigger: "onPlay", op: "sow_discord" }
 { trigger: "onPlay", op: "weaken_enemy_front", amount: 1, duration: "nextEnemyTurnEnd" }
 { trigger: "onPlay", op: "empty_fort", requiredRow: "rear", requiresSolo: true, charges: 1 }
 { trigger: "onPlay", op: "patience_counter", maxStored: 2 }
@@ -89,6 +90,12 @@ const game = createGame({
 `combat: { attacksPerTurn: 2, secondAttackSelfDamage: 2 }`는 매 턴 두 번 공격과
 두 번째 공격 후 턴 종료 반동을 선언합니다. `buff_self`의 `requiredRow: "rear"`,
 `duration: "thisTurn"`도 지원합니다.
+
+`sow_discord`는 상대 전장에 장수가 둘 이상일 때 공격력+현재 체력이 가장 낮은
+장수가 가장 높은 다른 장수를 즉시 공격하게 합니다. 두 장수는 일반 전투처럼
+서로 공격력만큼 피해를 주고받지만 공격권을 소비하지 않습니다. 동률은 전장 배열
+순서로 결정하며, 전열 보호는 적대 진영의 직접 공격 대상을 제한하는 규칙이므로
+같은 편끼리 충돌하는 반간계에는 적용되지 않습니다.
 
 적 장수 선택 효과는 카드 또는 능력의 `target`에 `"enemyMinion"`을 사용합니다.
 

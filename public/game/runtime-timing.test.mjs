@@ -704,5 +704,7 @@ test("runtime forwards formation placement without coupling board UI to rules", 
   );
   assert.match(source, /"formation:place":\s*420/);
   assert.match(source, /"faction:link":\s*780/);
+  assert.match(source, /"discord:start":\s*720/);
+  assert.match(source, /"discord:hit":\s*700/);
   assert.match(source, /"status:empty-fort":\s*760/);
 });

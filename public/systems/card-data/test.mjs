@@ -62,6 +62,7 @@ assert.match(glossary.저격, /전열.*후열/);
 var schema = api.getDslSchema();
 [
   "duel_target",
+  "sow_discord",
   "weaken_enemy_front",
   "empty_fort",
   "patience_counter",
@@ -136,6 +137,17 @@ assert.deepEqual(byId.shu_guan_yu.abilities[0], {
   target: "enemyMinion"
 });
 assert.match(byId.shu_guan_yu.text, /일기토.*공격력 피해.*처치 후 생존/);
+
+assert.deepEqual(byId.shu_jiang_wei.abilities[0], {
+  name: "반간계",
+  trigger: "onPlay",
+  op: "sow_discord"
+});
+assert.equal(byId.shu_jiang_wei.cost, 2);
+assert.equal(byId.shu_jiang_wei.attack, 2);
+assert.equal(byId.shu_jiang_wei.health, 3);
+assert.match(byId.shu_jiang_wei.text, /반간계.*공격력\+현재 체력.*가장 낮은.*가장 높은/);
+assert.match(byId.shu_jiang_wei.summaryText, /약한 적이 강한 다른 적을 공격/);
 
 assert.deepEqual(byId.shu_zhang_fei.keywords, ["수호", "의형제"]);
 assert.deepEqual(byId.shu_zhang_fei.abilities[0], {

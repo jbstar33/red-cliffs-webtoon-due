@@ -63,18 +63,19 @@
 7. 감녕 — `백기야습`: `돌진`, `돌파`. 후열에 배치된 턴에는 공격력 +1. `연화` 보유.
 8. 여포 — `천하무쌍`: `돌진`, `돌파`, 매 턴 공격 2회. 두 번째 공격을 했으면 그 턴 종료에 자신에게 피해 2. `약탈` 보유.
 9. 초선 — 기존 `매혹`: 비용 5, 비용 3 이상인 선택한 적 장수를 가져온다. `연환계` 연출을 사용하되 기능은 확대하지 않는다.
+10. 강유 — `반간계`: 출전 시 공격력+현재 체력이 가장 낮은 적 장수가 가장 높은 다른 적 장수를 즉시 공격한다. 적 장수가 2명 미만이면 불발한다.
 
 ### 상태와 능력 DSL
 
 - 신규 키워드: `돌파`, `의형제`, `군략`, `연화`, `약탈`, `천하무쌍`.
-- 신규 op: `duel_target`, `weaken_enemy_front`, `empty_fort`, `patience_counter`, `apply_burning_all`, `faction_link`.
+- 신규 op: `duel_target`, `sow_discord`, `weaken_enemy_front`, `empty_fort`, `patience_counter`, `apply_burning_all`, `faction_link`.
 - 장수 런타임 상태: `row`, `slot`, `burning`, `attackPenalty`, `attackPenaltyUntil`, `storedCounter`, `emptyFort`, `secondAttackPenalty`.
 - 지휘관 런타임 상태: `emptyFortCharges`.
 - 턴 경계에서 화상, 임시 공격력 감소, 사마의 반계, 여포의 반동을 결정론적으로 처리한다.
 
 ## 4. 피드백과 가독성
 
-- 이벤트: `formation:place`, `formation:block`, `faction:link`, `duel:start`, `duel:hit`, `status:burn`, `status:counter`, `status:intimidate`, `status:empty-fort`, `status:raid`.
+- 이벤트: `formation:place`, `formation:block`, `faction:link`, `duel:start`, `duel:hit`, `discord:start`, `discord:hit`, `status:burn`, `status:counter`, `status:intimidate`, `status:empty-fort`, `status:raid`.
 - FX는 이벤트별로 0.8초 이내의 짧고 구분되는 효과를 사용하고 reduced-motion을 준수한다.
 - 오디오는 외부 파일 없이 Web Audio로 합성하고, 연계·일기토·화상·공성계·약탈을 서로 다른 음색으로 구분한다.
 - 카드 상세 설명에는 `배치 추천`, `연계 조건`, `상태 지속시간`을 줄바꿈해 표시한다.

@@ -35,6 +35,7 @@
   var LAYER_OVERLAY = 3;
   var SEMANTIC_EFFECT_OPS = Object.freeze({
     duel_target: true,
+    sow_discord: true,
     weaken_enemy_front: true,
     empty_fort: true,
     patience_counter: true,
@@ -1428,27 +1429,30 @@
       var target = detail.target || null;
       var from = tacticalAnchor(source, detail, "minion");
       var to = tacticalAnchor(target, detail, "minion");
-      if (type === "duel:start") {
+      var discord = type.indexOf("discord:") === 0;
+      if (type === "duel:start" || type === "discord:start") {
         addTacticalCue("duel-start", 0.72, detail, {
           target: target,
           x1: from.x,
           y1: from.y,
           x2: to.x,
           y2: to.y,
-          color: RED,
-          secondaryColor: PALE_GOLD,
-          label: "일기토",
-          signature: "duel:crossing-blades",
+          color: discord ? COUNTER_VIOLET : RED,
+          secondaryColor: discord ? JADE : PALE_GOLD,
+          label: discord ? "반간계" : "일기토",
+          signature: discord ? "discord:crossed-orders" : "duel:crossing-blades",
           layer: LAYER_ACTION,
           cueAt: 0.2
         });
       } else {
         addTacticalCue("duel-hit", 0.56, detail, {
           target: target,
-          color: RED,
-          secondaryColor: PALE_GOLD,
-          label: detail.targetDied ? "승부" : "격돌",
-          signature: "duel:verdict",
+          color: discord ? COUNTER_VIOLET : RED,
+          secondaryColor: discord ? JADE : PALE_GOLD,
+          label: discord
+            ? detail.weakestDied || detail.strongestDied ? "이간 성공" : "동료 격돌"
+            : detail.targetDied ? "승부" : "격돌",
+          signature: discord ? "discord:betrayal-hit" : "duel:verdict",
           cueAt: 0.07
         });
       }
@@ -1593,6 +1597,8 @@
           break;
         case "duel:start":
         case "duel:hit":
+        case "discord:start":
+        case "discord:hit":
           triggerDuel(type, detail);
           break;
         case "status:burn":

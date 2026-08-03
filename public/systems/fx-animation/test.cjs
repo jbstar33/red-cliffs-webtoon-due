@@ -1457,6 +1457,16 @@ const tacticalEvents = [
     source: { zone: "board", side: "player", index: 0 },
     target: { zone: "board", side: "ai", index: 1 }
   }],
+  ["discord:start", {
+    actor: "player", weakestName: "약한 선동병", strongestName: "강한 친위대",
+    source: { zone: "board", side: "ai", index: 0 },
+    target: { zone: "board", side: "ai", index: 1 }
+  }],
+  ["discord:hit", {
+    actor: "player", weakestDied: true, strongestDied: false,
+    source: { zone: "board", side: "ai", index: 0 },
+    target: { zone: "board", side: "ai", index: 1 }
+  }],
   ["status:burn", {
     actor: "player", phase: "applied", amount: 1,
     target: { zone: "board", side: "ai", index: 0 }
@@ -1504,6 +1514,14 @@ assert.equal(
   JSON.stringify(["brotherhood", "strategy", "kindle", "raid"]),
   "four faction links keep distinct semantic signatures"
 );
+assert.ok(
+  tacticalDebug.timelines.some((timeline) => timeline.signature === "discord:crossed-orders"),
+  "반간계 begins with its own crossed-orders signature"
+);
+assert.ok(
+  tacticalDebug.timelines.some((timeline) => timeline.signature === "discord:betrayal-hit"),
+  "반간계 collision keeps a distinct verdict signature"
+);
 
 const beforeSemanticEffect = tacticalFx._debug().jobs;
 tacticalFx.handleEvent("effect:trigger", {
@@ -1512,6 +1530,12 @@ tacticalFx.handleEvent("effect:trigger", {
 });
 assert.equal(tacticalFx._debug().jobs, beforeSemanticEffect,
   "successful signature ops defer to their semantic event instead of doubling visuals");
+tacticalFx.handleEvent("effect:trigger", {
+  actor: "player", source: "semantic-discord", op: "sow_discord",
+  result: { success: true, fizzled: false }
+});
+assert.equal(tacticalFx._debug().jobs, beforeSemanticEffect,
+  "successful 반간계 defers to discord events instead of doubling visuals");
 tacticalFx.handleEvent("effect:trigger", {
   actor: "player", source: "failed-duel", op: "duel_target",
   result: { success: false, fizzled: true }

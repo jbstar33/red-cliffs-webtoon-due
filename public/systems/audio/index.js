@@ -36,6 +36,8 @@
     "formation:block": "formation-block",
     "duel:start": "duel-start",
     "duel:hit": "duel-hit",
+    "discord:start": "discord-start",
+    "discord:hit": "discord-hit",
     "status:burn": "status-burn",
     "status:counter": "status-counter",
     "status:intimidate": "status-intimidate",
@@ -87,6 +89,8 @@
     "link-raid": { duration: 0.52, cooldown: 0.065, same: 2, priority: 3 },
     "duel-start": { duration: 0.48, cooldown: 0.06, same: 2, priority: 3 },
     "duel-hit": { duration: 0.48, cooldown: 0.045, same: 2, priority: 4 },
+    "discord-start": { duration: 0.5, cooldown: 0.06, same: 2, priority: 3 },
+    "discord-hit": { duration: 0.5, cooldown: 0.045, same: 2, priority: 4 },
     "status-burn": { duration: 0.48, cooldown: 0.045, same: 3, priority: 3 },
     "status-counter": { duration: 0.58, cooldown: 0.065, same: 2, priority: 4 },
     "status-intimidate": { duration: 0.62, cooldown: 0.075, same: 2, priority: 3 },
@@ -97,9 +101,18 @@
   const TACTICAL_SOUND_NAMES = new Set([
     "formation-place", "formation-block",
     "link-brotherhood", "link-strategy", "link-kindle", "link-raid",
-    "duel-start", "duel-hit",
+    "duel-start", "duel-hit", "discord-start", "discord-hit",
     "status-burn", "status-counter", "status-intimidate",
     "status-empty-fort", "status-raid",
+  ]);
+  const SEMANTIC_AUDIO_OPS = new Set([
+    "duel_target",
+    "sow_discord",
+    "weaken_enemy_front",
+    "empty_fort",
+    "patience_counter",
+    "apply_burning_all",
+    "faction_link",
   ]);
   const EFFECT_RESULT_DEDUPE_SECONDS = 0.085;
   const TACTICAL_EVENT_DEDUPE_SECONDS = 0.055;
@@ -1714,6 +1727,57 @@
       });
     }
 
+    function soundDiscordStart(voice, volume) {
+      const now = voice.startAt;
+      noise(voice, {
+        start: now,
+        duration: 0.34,
+        seed: "discord-start:whispered-order",
+        rate: 0.82,
+        filter: "bandpass",
+        frequency: 1180,
+        endFrequency: 360,
+        q: 2.6,
+        gain: 0.046 * volume,
+      });
+      [247, 233, 370].forEach((frequency, index) => {
+        tone(voice, {
+          start: now + 0.035 + index * 0.052,
+          duration: 0.32 - index * 0.025,
+          frequency,
+          endFrequency: frequency * (index === 1 ? 0.88 : 1.08),
+          type: index === 2 ? "sine" : "triangle",
+          gain: (0.037 - index * 0.006) * volume,
+          sustain: 0.012 * volume,
+        });
+      });
+    }
+
+    function soundDiscordHit(voice, volume) {
+      const now = voice.startAt;
+      noise(voice, {
+        start: now,
+        duration: 0.2,
+        seed: "discord-hit:betrayal-clash",
+        rate: 1.18,
+        filter: "bandpass",
+        frequency: 2380,
+        endFrequency: 520,
+        q: 2.8,
+        gain: 0.076 * volume,
+      });
+      [622, 587, 147].forEach((frequency, index) => {
+        tone(voice, {
+          start: now + index * 0.018,
+          duration: index === 2 ? 0.34 : 0.22,
+          frequency,
+          endFrequency: frequency * (index === 2 ? 0.62 : 0.86),
+          type: index === 2 ? "triangle" : "square",
+          gain: (index === 2 ? 0.047 : 0.032) * volume,
+        });
+      });
+    }
+
     function soundStatusBurn(voice, volume) {
       const now = voice.startAt;
       noise(voice, {
@@ -2025,6 +2089,8 @@
         else if (normalized === "link-raid") soundLinkRaid(voice, volume);
         else if (normalized === "duel-start") soundDuelStart(voice, volume);
         else if (normalized === "duel-hit") soundDuelHit(voice, volume);
+        else if (normalized === "discord-start") soundDiscordStart(voice, volume);
+        else if (normalized === "discord-hit") soundDiscordHit(voice, volume);
         else if (normalized === "status-burn") soundStatusBurn(voice, volume);
         else if (normalized === "status-counter") soundStatusCounter(voice, volume);
         else if (normalized === "status-intimidate") soundStatusIntimidate(voice, volume);
@@ -2377,7 +2443,7 @@
 
     function semanticPriority(type) {
       if (type === "game:end") return 6;
-      if (/^(formation:|faction:link|duel:|status:)/.test(type)) return 5;
+      if (/^(formation:|faction:link|duel:|discord:|status:)/.test(type)) return 5;
       if (/^commander:/.test(type)) return 5;
       if (type === "card:play") return 5;
       if (type === "attack:start" || type === "attack:hit") return 4;
@@ -2537,6 +2603,15 @@
         case "duel:hit":
           rememberTacticalAbility("duel_target");
           return playTactical("duel-hit", data, { delay: 0.22, volume: 0.82 });
+        case "discord:start":
+          rememberTacticalAbility("sow_discord");
+          return playTactical("discord-start", data, { volume: 0.76 });
+        case "discord:hit":
+          rememberTacticalAbility("sow_discord");
+          return playTactical("discord-hit", data, {
+            delay: 0.22,
+            volume: 0.8,
+          });
         case "status:burn":
           rememberTacticalAbility(
             data.phase === "applied" ? "apply_burning_all" : "burning",
@@ -2705,6 +2780,14 @@
           });
         case "effect:trigger":
           {
+            if (
+              SEMANTIC_AUDIO_OPS.has(String(data.op || "")) &&
+              data.result &&
+              data.result.success !== false &&
+              !data.result.fizzled
+            ) {
+              return true;
+            }
             if (recentlyPlayedTacticalAbility(data.op)) return true;
             const resultPlayed = playEffectResult(data);
             if (resultPlayed != null) return resultPlayed;

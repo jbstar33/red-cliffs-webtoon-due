@@ -282,6 +282,8 @@ async function main() {
     "link-raid",
     "duel-start",
     "duel-hit",
+    "discord-start",
+    "discord-hit",
     "status-burn",
     "status-counter",
     "status-intimidate",
@@ -380,6 +382,8 @@ async function main() {
     ["faction:link", { actor: "ai", linkKind: "raid" }, "link-raid"],
     ["duel:start", { actor: "player", sourceAttack: 5, targetAttack: 4 }, "duel-start"],
     ["duel:hit", { actor: "player", damageToTarget: 5, damageToSource: 4 }, "duel-hit"],
+    ["discord:start", { actor: "player", sourceAttack: 1, targetAttack: 4 }, "discord-start"],
+    ["discord:hit", { actor: "player", damageToStrongest: 1, damageToWeakest: 4 }, "discord-hit"],
     ["status:burn", { actor: "ai", phase: "applied", amount: 1 }, "status-burn"],
     ["status:counter", { actor: "player", phase: "stored", amount: 2 }, "status-counter"],
     ["status:intimidate", { actor: "ai", amount: 1, duration: 1 }, "status-intimidate"],
@@ -405,7 +409,7 @@ async function main() {
   const tacticalNames = [
     "formation-place", "formation-block",
     "link-brotherhood", "link-strategy", "link-kindle", "link-raid",
-    "duel-start", "duel-hit",
+    "duel-start", "duel-hit", "discord-start", "discord-hit",
     "status-burn", "status-counter", "status-intimidate",
     "status-empty-fort", "status-raid",
   ];
@@ -507,6 +511,36 @@ async function main() {
   assert.ok(
     duelHit.startAt >= duelStart.startAt + 0.2,
     "duel contact follows the challenge transient instead of masking it",
+  );
+
+  context.currentTime += 1;
+  const discordScheduleOffset = audio._debug().scheduledSounds.length;
+  const genericDiscordBefore = audio._debug().playCounts.effect || 0;
+  assert.equal(
+    audio.handleEvent("effect:trigger", {
+      op: "sow_discord",
+      result: { success: true, fizzled: false },
+    }),
+    true,
+  );
+  audio.handleEvent("discord:start", { actor: "player" });
+  audio.handleEvent("discord:hit", {
+    actor: "player",
+    damageToStrongest: 1,
+    damageToWeakest: 4,
+  });
+  const discordSchedule = audio._debug().scheduledSounds.slice(discordScheduleOffset);
+  const discordStart = discordSchedule.find((entry) => entry.name === "discord-start");
+  const discordHit = discordSchedule.find((entry) => entry.name === "discord-hit");
+  assert.ok(discordStart && discordHit, "반간계 uses a two-stage procedural clash cue");
+  assert.ok(
+    discordHit.startAt >= discordStart.startAt + 0.2,
+    "반간계 충돌음은 이간 명령음 뒤에 재생됩니다",
+  );
+  assert.equal(
+    audio._debug().playCounts.effect || 0,
+    genericDiscordBefore,
+    "반간계 semantic audio suppresses the generic effect tail",
   );
 
   context.currentTime += 1;

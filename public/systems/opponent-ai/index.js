@@ -950,6 +950,7 @@
       grant_all_allies_armor: 2.4,
       steal_enemy_minion_max_cost: 3.8,
       duel_target: 4.4,
+      sow_discord: 3.2,
       weaken_enemy_front: 3.2,
       empty_fort: 3.8,
       patience_counter: 3.1,
@@ -1511,6 +1512,44 @@
     return value;
   }
 
+  function discordPairForBoard(board) {
+    const entries = (board || []).map((minion, index) => ({
+      minion,
+      index,
+      strength: attackOf(minion) + healthOf(minion),
+      attack: attackOf(minion),
+      health: healthOf(minion),
+      cost: Math.max(0, finite(minion.currentCost, finite(minion.cost, 0))),
+    }));
+    if (entries.length < 2) return null;
+    const weakest = entries.slice().sort((left, right) =>
+      left.strength - right.strength ||
+      left.attack - right.attack ||
+      left.health - right.health ||
+      left.cost - right.cost ||
+      left.index - right.index
+    )[0];
+    const strongest = entries
+      .filter((entry) => entry.index !== weakest.index)
+      .sort((left, right) =>
+        right.strength - left.strength ||
+        right.attack - left.attack ||
+        right.health - left.health ||
+        right.cost - left.cost ||
+        left.index - right.index
+      )[0];
+    return { weakest, strongest };
+  }
+
+  function discordTacticalValue(board) {
+    const pair = discordPairForBoard(board);
+    if (!pair) return -18;
+    // The simulated post-action board already prices both damage exchanges.
+    // Keep only a small reliability premium here so the same removal is not
+    // counted twice, while retaining a strong penalty for a visible fizzle.
+    return 1.2;
+  }
+
   function formationPlayValue(state, card, action) {
     const placement = action && action.placement;
     if (!placement) return 0;
@@ -1701,6 +1740,8 @@
               0,
             )
           : -8;
+      } else if (ability.op === "sow_discord") {
+        value += discordTacticalValue(enemyBoard);
       } else if (ability.op === "weaken_enemy_front") {
         const front = enemyBoard.filter((minion) => rowOf(minion) === "front");
         value += front.reduce(
@@ -1923,6 +1964,16 @@
       if (ability.op === "duel_target" && action.target) {
         const target = targetEntity(state, action.target);
         return target && attackOf(card) >= healthOf(target) && attackOf(target) < healthOf(card);
+      }
+      if (ability.op === "sow_discord") {
+        const pair = discordPairForBoard(boardOf(state, PLAYER_SIDE));
+        return Boolean(
+          pair &&
+          ((!hasShield(pair.strongest.minion) &&
+            pair.weakest.attack >= pair.strongest.health) ||
+            (!hasShield(pair.weakest.minion) &&
+              pair.strongest.attack >= pair.weakest.health)),
+        );
       }
       if (ability.op === "damage_target" && action.target?.zone === "board") {
         const target = targetEntity(state, action.target);

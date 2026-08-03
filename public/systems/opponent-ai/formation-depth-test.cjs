@@ -119,6 +119,25 @@ function simulate(state, action) {
         next.boards.ai = next.boards.ai.filter((unit) => unit.currentHealth > 0);
       }
     }
+    const discord = played.abilities.find((ability) => ability.op === "sow_discord");
+    if (discord && next.boards.player.length >= 2) {
+      const ranked = next.boards.player.map((unit, index) => ({
+        unit,
+        index,
+        strength: unit.currentAttack + unit.currentHealth,
+      }));
+      const weakest = ranked.slice().sort((left, right) =>
+        left.strength - right.strength || left.index - right.index
+      )[0];
+      const strongest = ranked
+        .filter((entry) => entry.index !== weakest.index)
+        .sort((left, right) =>
+          right.strength - left.strength || left.index - right.index
+        )[0];
+      strongest.unit.currentHealth -= weakest.unit.currentAttack;
+      weakest.unit.currentHealth -= strongest.unit.currentAttack;
+      next.boards.player = next.boards.player.filter((unit) => unit.currentHealth > 0);
+    }
     return next;
   }
   if (action.type === "attack") {
@@ -309,6 +328,38 @@ assertPlacement(
   assert.strictEqual(choose(state, [face, end], "lu-bu-lethal").type, "attack");
 }
 
+{
+  const state = baseState();
+  state.boards.player = [
+    minion("discord-weak", 1, 1),
+    minion("discord-strong", 4, 5),
+  ];
+  state.hands.ai = [
+    card("shu_jiang_wei", 2, 1, 2, {
+      faction: "촉",
+      abilities: [{ name: "반간계", trigger: "onPlay", op: "sow_discord" }],
+    }),
+    card("plain-two-drop", 2, 1, 2),
+  ];
+  const actions = [
+    ...playActions(0),
+    ...playActions(1),
+    { type: "endTurn", side: "ai" },
+  ];
+  assert.strictEqual(
+    choose(state, actions, "discord-value").handIndex,
+    0,
+    "AI should prefer 반간계 when it forces a profitable enemy collision",
+  );
+
+  state.boards.player = [minion("discord-alone", 4, 5)];
+  assert.strictEqual(
+    choose(state, actions, "discord-fizzle").handIndex,
+    1,
+    "AI should avoid a fizzled 반간계 when an equal body is available",
+  );
+}
+
 console.log(
-  "opponent-ai formation depth: placements 5 | legality 3 | links 4 | duel/recoil 3 | duplicate simulations 0",
+  "opponent-ai formation depth: placements 5 | legality 3 | links 4 | duel/recoil 3 | discord 2 | duplicate simulations 0",
 );

@@ -22,6 +22,8 @@
     "faction:link": 780,
     "duel:start": 720,
     "duel:hit": 700,
+    "discord:start": 720,
+    "discord:hit": 700,
     "status:burn": 620,
     "status:counter": 720,
     "status:intimidate": 640,

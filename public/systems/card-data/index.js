@@ -41,6 +41,7 @@
     "grant_all_allies_armor",
     "steal_enemy_minion_max_cost",
     "duel_target",
+    "sow_discord",
     "weaken_enemy_front",
     "empty_fort",
     "patience_counter",
@@ -809,9 +810,10 @@
     {
       id: "shu_jiang_wei", name: "강유", courtesy: "백약", faction: "촉",
       cost: 2, attack: 2, health: 3, rarity: "영웅", role: "계승자",
-      flavor: "스승의 뜻을 품고 북벌의 길을 다시 연다.", keywords: [], target: "none", abilities: [],
+      flavor: "스승의 뜻을 품고 적진의 의심을 칼날로 바꾼다.", keywords: [], target: "none",
+      abilities: [{ name: "반간계", trigger: "onPlay", op: "sow_discord" }],
       palette: { primary: "#446B63", secondary: "#D8D0A1", glow: "#8BE0CF" },
-      portrait: { motif: "별자리 군기와 펼친 병서", weapon: "녹침창", temperament: "집요한 충의" }
+      portrait: { motif: "찢긴 밀서와 서로 겨눈 적군의 창끝", weapon: "녹침창과 봉인된 밀서", temperament: "냉철한 이간과 집요한 충의" }
     },
     {
       id: "shu_fa_zheng", name: "법정", courtesy: "효직", faction: "촉",
@@ -1015,6 +1017,12 @@
       plan: "5마나 5공격 돌진으로 노출된 핵심 적이나 적 영웅을 즉시 압박합니다.",
       combo: "선택 피해로 수호를 치운 뒤 높은 돌진 공격력을 적 영웅에게 연결합니다.",
       counter: "체력이 3이므로 수호 하수인이나 작은 직접 피해로 다음 공격 전에 제거합니다."
+    },
+    shu_jiang_wei: {
+      identity: "반간계 이간 책사",
+      plan: "적 장수가 둘 이상 모인 순간 약한 적을 부추겨 강한 적과 맞붙게 합니다.",
+      combo: "전투 뒤 체력이 줄어든 강한 적을 직접 피해나 공격으로 마무리합니다.",
+      counter: "장수를 하나만 유지하거나 공격력이 낮은 장수를 섞어 반간계 피해를 줄입니다."
     },
     wei_cao_cao: {
       identity: "전군 강화 군주",
@@ -1282,6 +1290,12 @@
           "일기토 — 적 장수와 공격력 피해를 교환. " +
           "처치 후 생존하면 이번 턴 공격 가능."
         );
+      case "sow_discord":
+        return (
+          prefix +
+          "반간계 — 공격력+현재 체력이 가장 낮은 적 장수가 가장 높은 다른 적 장수를 즉시 공격합니다. " +
+          "적 장수가 2명 미만이면 발동하지 않습니다."
+        );
       case "weaken_enemy_front":
         return (
           prefix +
@@ -1415,6 +1429,8 @@
         return prefix + "비용 " + ability.maxCost + " 이하 적 하수인 1명 획득";
       case "duel_target":
         return prefix + "일기토 후 단독 생존·처치 시 공격 가능";
+      case "sow_discord":
+        return prefix + "반간계: 약한 적이 강한 다른 적을 공격";
       case "weaken_enemy_front":
         return prefix + "적 전열 공격력 -" + ability.amount + "(다음 적 턴까지)";
       case "empty_fort":
@@ -2019,6 +2035,7 @@
         score += (ability.maxCost || 0) * 1.2;
       }
       if (ability.op === "duel_target") score += 2.2;
+      if (ability.op === "sow_discord") score += 2;
       if (ability.op === "weaken_enemy_front") score += amount * 1.5;
       if (ability.op === "empty_fort") score += 2;
       if (ability.op === "patience_counter") {

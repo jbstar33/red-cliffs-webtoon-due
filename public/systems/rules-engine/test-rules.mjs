@@ -372,6 +372,30 @@ const definitions = [
     target: "none",
     abilities: [],
   },
+  {
+    id: "test-discord",
+    name: "강유 시험",
+    faction: "촉",
+    cost: 0,
+    attack: 1,
+    health: 2,
+    keywords: [],
+    target: "none",
+    abilities: [{ name: "반간계", trigger: "onPlay", op: "sow_discord" }],
+  },
+  {
+    id: "test-discord-setter",
+    name: "약한 선동병",
+    faction: "위",
+    cost: 0,
+    attack: 1,
+    health: 1,
+    keywords: [],
+    target: "none",
+    abilities: [
+      { trigger: "onPlay", op: "summon_token", tokenId: "test_discord_strong", count: 1 },
+    ],
+  },
 ];
 
 const tokens = [
@@ -382,6 +406,17 @@ const tokens = [
     cost: 0,
     attack: 1,
     health: 1,
+    keywords: [],
+    target: "none",
+    abilities: [],
+  },
+  {
+    id: "test_discord_strong",
+    name: "강한 친위대",
+    faction: "위",
+    cost: 0,
+    attack: 4,
+    health: 5,
     keywords: [],
     target: "none",
     abilities: [],
@@ -2221,6 +2256,58 @@ function testFormationPlacementProtectionAndCapacity() {
   assert.ok(events.some((event) => event.type === "formation:place"));
 }
 
+function testJiangWeiSowsDiscordBetweenEnemyMinions() {
+  const events = [];
+  const game = createGame({
+    definitions,
+    tokens,
+    playerDeck: deckOf("test-discord"),
+    aiDeck: deckOf("test-discord-setter"),
+    seed: 704,
+    emit: (type, detail) => events.push({ type, detail }),
+  });
+  game.endTurn("player");
+  playFirst(game, "playCard");
+  assert.deepEqual(
+    game.getState().boards.ai.map((minion) => [minion.name, minion.currentAttack, minion.currentHealth]),
+    [
+      ["약한 선동병", 1, 1],
+      ["강한 친위대", 4, 5],
+    ],
+  );
+  game.endTurn("ai");
+  playFirst(game, "playCard");
+
+  const enemyBoard = game.getState().boards.ai;
+  assert.equal(enemyBoard.length, 1);
+  assert.equal(enemyBoard[0].name, "강한 친위대");
+  assert.equal(enemyBoard[0].currentHealth, 4);
+  assert.ok(events.some((event) => event.type === "discord:start"));
+  const hit = events.find((event) => event.type === "discord:hit");
+  assert.equal(hit.detail.weakestName, "약한 선동병");
+  assert.equal(hit.detail.strongestName, "강한 친위대");
+  assert.equal(hit.detail.damageToStrongest, 1);
+  assert.equal(hit.detail.damageToWeakest, 4);
+  assert.equal(hit.detail.weakestDied, true);
+  assert.equal(hit.detail.strongestDied, false);
+
+  const fizzles = [];
+  const fizzleGame = createGame({
+    definitions,
+    tokens,
+    playerDeck: deckOf("test-discord"),
+    aiDeck: deckOf("charger"),
+    seed: 705,
+    emit: (type, detail) => fizzles.push({ type, detail }),
+  });
+  playFirst(fizzleGame, "playCard");
+  const fizzle = fizzles.find(
+    (event) => event.type === "effect:trigger" && event.detail.op === "sow_discord",
+  );
+  assert.equal(fizzle.detail.result.fizzled, true);
+  assert.equal(fizzle.detail.result.reason, "not_enough_enemy_minions");
+}
+
 function testFourFactionLinks() {
   const brotherEvents = [];
   const brotherhood = createGame({
@@ -2511,6 +2598,7 @@ testNomadAttackLockCloneAndExpiry();
 testCloneDeterminismAndIsolation();
 testFatigueEndsGame();
 testFormationPlacementProtectionAndCapacity();
+testJiangWeiSowsDiscordBetweenEnemyMinions();
 testFourFactionLinks();
 testSignatureGeneralAbilitiesAndStatuses();
 const battle = testCompleteTwentyCardBattle();
