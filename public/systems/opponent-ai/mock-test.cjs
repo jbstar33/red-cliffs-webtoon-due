@@ -408,14 +408,14 @@ function choose(state, actions, seed) {
   const state = baseState();
   state.heroes.player.health = 4;
   state.boards.ai = [minion("shu_huang_zhong", 4, 3, { keywords: ["저격"] })];
-  state.boards.player = [minion("guard", 7, 2, { guard: true })];
+  state.boards.player = [minion("guard", 1, 2, { guard: true })];
   const actions = [
     { type: "attack", side: "ai", attackerIndex: 0, target: { zone: "board", side: "player", index: 0 } },
     { type: "attack", side: "ai", attackerIndex: 0, target: { zone: "hero", side: "player" } },
     { type: "endTurn", side: "ai" },
   ];
-  const selected = choose(state, actions, "snipe-lethal");
-  assert.strictEqual(selected.target.zone, "hero", "sniper must bypass guard for lethal");
+  const selected = choose(state, actions, "snipe-guard-priority");
+  assert.strictEqual(selected.target.zone, "board", "sniper must obey guard before lethal");
 }
 
 {
@@ -430,8 +430,8 @@ function choose(state, actions, seed) {
   ];
   assert.strictEqual(
     choose(state, actions, "snipe-pressure").target.zone,
-    "hero",
-    "sniper should value meaningful direct pressure through guard",
+    "board",
+    "sniper must attack guard before applying direct pressure",
   );
 }
 
@@ -1128,4 +1128,5 @@ function choose(state, actions, seed) {
 }
 
 console.log("opponent-ai tactical mocks: 123 deterministic scenario groups passed");
+require("./formation-depth-test.cjs");
 require("./commander-power-test.cjs");

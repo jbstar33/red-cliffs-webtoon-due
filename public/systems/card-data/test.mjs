@@ -18,6 +18,7 @@ var byId = Object.fromEntries(cards.map(function indexCard(card) {
   "getToken",
   "getTokens",
   "getKeywordGlossary",
+  "getDslSchema",
   "auditBalance",
   "validate"
 ].forEach(function publicMethod(name) {
@@ -52,8 +53,30 @@ assert.equal(api.getToken("missing-token"), null);
 assert.deepEqual(api.getToken("token_nanman_beast"), tokens.token_nanman_beast);
 
 var glossary = api.getKeywordGlossary();
-assert.deepEqual(Object.keys(glossary).sort(), ["돌진", "방패", "수호", "저격"]);
-assert.match(glossary.저격, /수호.*무시.*영웅/);
+assert.deepEqual(Object.keys(glossary).sort(), [
+  "군략", "돌진", "돌파", "방패", "수호",
+  "약탈", "연화", "의형제", "저격", "천하무쌍"
+]);
+assert.match(glossary.저격, /전열.*후열/);
+
+var schema = api.getDslSchema();
+[
+  "duel_target",
+  "weaken_enemy_front",
+  "empty_fort",
+  "patience_counter",
+  "apply_burning_all",
+  "faction_link"
+].forEach(function newOp(op) {
+  assert.ok(schema.ops.includes(op), "missing DSL op " + op);
+});
+assert.deepEqual(schema.linkKinds.sort(), ["brotherhood", "kindle", "raid", "strategy"]);
+assert.deepEqual(report.summary.factionLinks, {
+  brotherhood: 3,
+  strategy: 1,
+  kindle: 2,
+  raid: 1
+});
 
 cards.forEach(function validateProductionDefinition(card) {
   assert.ok(card.text.length > 0 && card.text.length <= 120, card.id + ": text");
@@ -84,20 +107,93 @@ assert.equal(
 );
 
 assert.ok(byId.shu_huang_zhong.keywords.includes("저격"));
-assert.ok(byId.shu_huang_zhong.text.includes("수호 하수인을 무시"));
+assert.ok(byId.shu_huang_zhong.text.includes("전열 너머 후열"));
 assert.deepEqual(byId.wei_xiahou_yuan.keywords, ["저격"]);
 assert.equal(byId.wei_xiahou_yuan.faction, "위");
+
+var featuredIds = [
+  "shu_guan_yu",
+  "shu_zhang_fei",
+  "shu_zhao_yun",
+  "shu_zhuge_liang",
+  "wei_sima_yi",
+  "wu_zhou_yu",
+  "wu_gan_ning",
+  "qun_lu_bu",
+  "qun_diao_chan"
+];
+featuredIds.forEach(function featuredDetails(id) {
+  ["placement", "linkCondition", "statusDuration"].forEach(function field(name) {
+    assert.ok(byId[id].tactics[name].length >= 6, id + ": tactics." + name);
+  });
+});
+
+assert.deepEqual(byId.shu_guan_yu.keywords, ["돌파", "의형제"]);
+assert.deepEqual(byId.shu_guan_yu.abilities[0], {
+  name: "일기토",
+  trigger: "onPlay",
+  op: "duel_target",
+  target: "enemyMinion"
+});
+assert.match(byId.shu_guan_yu.text, /일기토.*공격력 피해.*처치 후 생존/);
+
+assert.deepEqual(byId.shu_zhang_fei.keywords, ["수호", "의형제"]);
+assert.deepEqual(byId.shu_zhang_fei.abilities[0], {
+  name: "장판의 호통",
+  trigger: "onPlay",
+  op: "weaken_enemy_front",
+  amount: 1,
+  duration: "nextEnemyTurnEnd"
+});
+
+assert.deepEqual(byId.shu_zhao_yun.keywords, ["돌진", "돌파", "방패"]);
+assert.deepEqual(byId.shu_zhuge_liang.abilities[0], {
+  name: "공성계",
+  trigger: "onPlay",
+  op: "empty_fort",
+  requiredRow: "rear",
+  requiresSolo: true,
+  charges: 1
+});
+assert.deepEqual(byId.wei_sima_yi.abilities[0], {
+  name: "인내의 반계",
+  trigger: "onPlay",
+  op: "patience_counter",
+  maxStored: 2
+});
+assert.deepEqual(byId.wu_zhou_yu.abilities[0], {
+  name: "연환화계",
+  trigger: "onPlay",
+  op: "apply_burning_all",
+  amount: 1,
+  duration: "ownerTurnEnd"
+});
+assert.deepEqual(byId.wu_gan_ning.abilities[0], {
+  name: "백기야습",
+  trigger: "onPlay",
+  op: "buff_self",
+  attack: 1,
+  health: 0,
+  requiredRow: "rear",
+  duration: "thisTurn"
+});
+assert.deepEqual(byId.qun_lu_bu.combat, {
+  attacksPerTurn: 2,
+  secondAttackSelfDamage: 2
+});
+assert.deepEqual(byId.qun_lu_bu.keywords, ["돌진", "돌파", "천하무쌍", "약탈"]);
 
 assert.equal(byId.qun_diao_chan.name, "초선");
 assert.equal(byId.qun_diao_chan.cost, 5);
 assert.equal(byId.qun_diao_chan.target, "enemyMinion");
 assert.deepEqual(byId.qun_diao_chan.abilities, [{
+  name: "매혹",
   trigger: "onPlay",
   op: "steal_enemy_minion",
   minCost: 3,
   target: "enemyMinion"
 }]);
-assert.match(byId.qun_diao_chan.text, /비용이 3 이상.*가져옵니다.*다음 내 턴부터 공격/);
+assert.match(byId.qun_diao_chan.text, /매혹.*비용이 3 이상.*가져옵니다.*다음 내 턴부터 공격/);
 
 assert.equal(byId.shu_pang_tong.name, "방통");
 assert.equal(byId.shu_pang_tong.faction, "촉");

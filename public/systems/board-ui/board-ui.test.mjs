@@ -259,7 +259,7 @@ test("shows one concise tactical label on cards while previews keep full semanti
   assert.match(source, /tacticalLines\.forEach/);
   assert.match(source, /getCardValue\(card, "summaryText", getCardValue\(card, "text", ""\)\)/);
   assert.match(source, /function inspectorTextLayout\(card, width, maxHeight\)/);
-  assert.match(source, /const sizes = \[19, 18, 17, 16, 15, 14\]/);
+  assert.match(source, /const sizes = \[17, 16, 15, 14, 13, 12, 11\]/);
   assert.match(source, /semanticTextLines\([\s\S]{0,80}content\.abilityText,[\s\S]{0,40}width,[\s\S]{0,20}99/);
   assert.match(source, /keywordDefinitions/);
   assert.match(source, /발동 · 키워드/);
@@ -392,6 +392,42 @@ test("integrates exact normalization with all fifty production card-data texts a
     const fallbackModel = hooks.inspectorContentModel(card, fallbackDetails);
     assert.equal(fallbackModel.abilityText, expectedAbility, `${card.id}: fallback mismatch`);
   });
+});
+
+test("fits production formation, linkage, status, keyword, and ability copy in the inspector", () => {
+  const sandbox = { globalThis: {} };
+  vm.runInNewContext(source, sandbox, { filename: "board-ui/index.js" });
+  vm.runInNewContext(cardDataSource, sandbox, { filename: "card-data/index.js" });
+  const hooks = sandbox.globalThis.TK.modules.boardUI.testHooks;
+  const cardData = sandbox.globalThis.TK.modules.cardData;
+  const glossary = cardData.getKeywordGlossary();
+  const harness = createFake2dHarness();
+  const context = harness.contexts[0].context;
+  cardData.getCards().forEach((card) => {
+    const details = hooks.resolveCardKeywordDetails(card, glossary);
+    const layout = hooks.calculateInspectorTextLayout(context, card, 252, 403, details);
+    assert.ok(layout.totalHeight <= 403, `${card.id}: inspector overflow ${layout.totalHeight}`);
+    const tactics = card.tactics || {};
+    if (tactics.placement) assert.ok(layout.strategyRows.some((row) => row.label === "배치 추천"));
+    if (tactics.linkCondition) assert.ok(layout.strategyRows.some((row) => row.label === "연계 조건"));
+    if (tactics.statusDuration) assert.ok(layout.strategyRows.some((row) => row.label === "상태 지속"));
+  });
+  const luBu = cardData.getCards().find((card) => card.id === "qun_lu_bu");
+  const stressedLuBu = {
+    ...luBu,
+    burning: 2,
+    attackPenalty: 1,
+    storedCounter: 2,
+    attackLockPending: true,
+    emptyFort: true,
+    secondAttackPenalty: true,
+    formationProtected: true,
+  };
+  const stressedDetails = hooks.resolveCardKeywordDetails(stressedLuBu, glossary);
+  const stressedLayout = hooks.calculateInspectorTextLayout(context, stressedLuBu, 252, 403, stressedDetails);
+  assert.ok(stressedLayout.totalHeight <= 403, `stressed Lu Bu overflow ${stressedLayout.totalHeight}`);
+  assert.equal(stressedLayout.strategyRows.filter((row) => row.section === "status").length, 1);
+  assert.match(stressedLayout.strategyRows.find((row) => row.section === "status").text, /후열 보호.*화상.*호통.*반계.*봉쇄.*공성계.*반동/);
 });
 
 test("production multi-term inspector ARIA uses one sentence boundary and preserves each meaning once", () => {
@@ -550,7 +586,7 @@ test("derives trigger definitions and consistently presents on-death as 유언",
   assert.match(source, /entries\.push\(\{ keyword: "출전", kind: "trigger" \}\)/);
   assert.match(source, /entries\.push\(\{ keyword: "유언", kind: "trigger" \}\)/);
   assert.match(source, /replace\(\/죽음\\s\*:\/g, "유언:"\)/);
-  assert.match(source, /\(출전:\|유언:\|돌진\|수호\|방패\)/);
+  assert.match(source, /\(출전:\|유언:\|돌진\|돌파\|수호\|방패\|의형제\|군략\|연화\|약탈\|천하무쌍/);
 });
 
 test("pinned inspector blocks click-through and closing clears armed selection", () => {
@@ -817,16 +853,97 @@ test("leaves spectacle drawing to fx while synchronizing board presentation snap
   assert.match(source, /gameEndRevealAt = now \+ GAME_END_REVEAL_DELAY/);
 });
 
-test("dispatches guard-blocked attacks while allowing snipers to target the commander", () => {
+test("dispatches guard and formation-blocked attacks for authoritative feedback", () => {
   assert.match(source, /function isGuardBlockedAttackTarget\(target, selectedItem, state\)/);
   assert.match(source, /if \(guards\.length === 0\) return false/);
-  assert.match(source, /target\.zone === "hero" && cardHasKeyword\(attacker, "저격"\)/);
-  assert.match(source, /return !cardHasKeyword\(attacker, "저격"\)/);
+  assert.match(source, /function isFormationBlockedAttackTarget\(target, selectedItem, state\)/);
+  assert.match(source, /cardHasKeyword\(attacker, "저격"\) && !cardHasKeyword\(attacker, "돌파"\)/);
   assert.match(
     source,
-    /if \(isGuardBlockedAttackTarget\(target, selection, state\)\) \{[\s\S]{0,180}type: "ATTACK"[\s\S]{0,100}cancelSelection\(\)/,
+    /isGuardBlockedAttackTarget\(target, selection, state\)[\s\S]{0,120}isFormationBlockedAttackTarget\(target, selection, state\)[\s\S]{0,180}type: "ATTACK"[\s\S]{0,100}cancelSelection\(\)/,
   );
   assert.match(source, /const color = allowed \? "#ffdd73" : "#ee644f"/);
+});
+
+test("lays out two three-slot rows and preserves deterministic legacy auto placement", () => {
+  const sandbox = { globalThis: {} };
+  vm.runInNewContext(source, sandbox, { filename: "board-ui/index.js" });
+  const hooks = sandbox.globalThis.TK.modules.boardUI.testHooks;
+  const board = [
+    { instanceId: "fixed", row: "rear", slot: 1 },
+    { instanceId: "legacy-a" },
+    { instanceId: "legacy-b" },
+    { instanceId: "duplicate", row: "rear", slot: 1 },
+  ];
+  assert.deepEqual(
+    Array.from(hooks.formationBoardLayout(board), (placement) => ({ ...placement })),
+    [
+      { row: "rear", slot: 1 },
+      { row: "front", slot: 0 },
+      { row: "front", slot: 1 },
+      { row: "front", slot: 2 },
+    ],
+  );
+  assert.deepEqual(
+    Array.from(hooks.availableFormationPlacements(board), (placement) => ({ ...placement })),
+    [{ row: "rear", slot: 0 }, { row: "rear", slot: 2 }],
+  );
+  const aiRear = hooks.formationSlotGeometry("ai", "rear", 0);
+  const aiFront = hooks.formationSlotGeometry("ai", "front", 0);
+  const playerFront = hooks.formationSlotGeometry("player", "front", 0);
+  const playerRear = hooks.formationSlotGeometry("player", "rear", 0);
+  assert.ok(aiRear.y < aiFront.y && aiFront.y < playerFront.y && playerFront.y < playerRear.y);
+  assert.equal(aiRear.width, 112);
+  assert.equal(aiRear.height, 92);
+  assert.match(source, /addHit\("formation-slot"/);
+  assert.match(source, /前  전열/);
+  assert.match(source, /後  후열/);
+});
+
+test("uses a placement-first two-step play flow for click, drag, keyboard, and touch", () => {
+  assert.match(source, /function activatePlacement\(hit, state\)/);
+  assert.match(
+    source,
+    /type: "PLAY_CARD"[\s\S]{0,120}placement: \{ \.\.\.placement \}/,
+  );
+  assert.match(
+    source,
+    /type: "PLAY_CARD"[\s\S]{0,160}target,[\s\S]{0,100}placement: \{ \.\.\.selection\.placement \}/,
+  );
+  assert.match(source, /if \(!selectedItem\.placement\) return false/);
+  assert.match(source, /if \(selection && activatePlacement\(hit, state\)\) return/);
+  assert.match(source, /if \(activatePlacement\(releaseHit, state\)\)/);
+  assert.match(source, /selection\.index === hit\.data\.index[\s\S]{0,100}placement: \{ \.\.\.selection\.placement \}/);
+  assert.match(source, /hit\.type === "formation-slot"/);
+  assert.match(source, /canvas\.style\.touchAction = "none"/);
+});
+
+test("shows formation protection and readable strategy and runtime status details", () => {
+  const sandbox = { globalThis: {} };
+  vm.runInNewContext(source, sandbox, { filename: "board-ui/index.js" });
+  const hooks = sandbox.globalThis.TK.modules.boardUI.testHooks;
+  const card = {
+    tactics: {
+      placement: "후열 추천 — 생존 시간을 확보합니다.",
+      linkCondition: "다른 위 아군이 있을 때 군략 발동.",
+      statusDuration: "다음 내 턴 시작까지 유지.",
+    },
+    burning: 2,
+    storedCounter: 1,
+    formationProtected: true,
+  };
+  assert.deepEqual(
+    Array.from(hooks.inspectorStrategyRows(card), (row) => row.label),
+    ["배치 추천", "연계 조건", "상태 지속"],
+  );
+  assert.deepEqual(
+    Array.from(hooks.inspectorRuntimeStatusRows(card), (row) => row.label),
+    ["후열 보호", "화상", "반계"],
+  );
+  assert.match(source, /🔒 전열 보호/);
+  assert.match(source, /전열이 보호 중 — 저격·돌파 외에는 공격 불가/);
+  assert.match(source, /배치 · 연계 · 상태/);
+  assert.doesNotMatch(source, /markers\.slice\(0, 2\)/);
 });
 
 test("restricts targeted steals to legal enemy board cards and both charm cost limits", () => {
@@ -1106,7 +1223,7 @@ test("does not arm or glow an unaffordable targeted card until an explicit secon
   assert.ok(playableArm >= 0 && playableArm < neutralBranch && neutralBranch < neutralInspection);
   assert.match(
     handBranch.slice(playableArm, neutralInspection),
-    /selection = \{ kind: "hand"[\s\S]{0,180}cardTargetKind\(card\) !== "none"[\s\S]{0,80}\uC0AC\uC6A9\uD560 \uB300\uC0C1\uC744 \uC120\uD0DD/,
+    /selection = \{ kind: "hand"[\s\S]{0,180}빛나는 전열·후열 빈칸을 선택/,
   );
   assert.match(
     handBranch.slice(neutralBranch),
@@ -1279,7 +1396,7 @@ test("distinguishes active and spent shields and marks random rules for fast sca
   assert.match(source, /const randomRule = hasRandomRule\(card\)/);
   assert.match(source, /spentShield \? "방패 소모" : name/);
   assert.match(source, /이번 전투에서 방패가 이미 소모되었습니다/);
-  assert.match(source, /split\(\/\(출전:\|유언:\|돌진\|수호\|방패\|무작위\)\//);
+  assert.match(source, /split\(\/\(출전:\|유언:\|돌진\|돌파\|수호\|방패\|의형제\|군략\|연화\|약탈\|천하무쌍\|무작위\)\//);
   assert.match(mockSource, /Object\.assign\(card\(3\), \{ shield: false \}\)/);
   assert.match(mockSource, /scenario"\) === "invalid"/);
   assert.match(mockSource, /scenario"\) === "defeat"/);
@@ -1584,7 +1701,7 @@ test("makes inspector art dominant without changing the nonblocking panel footpr
   assert.match(source, /configCard\.preview \? 0\.52 : 0\.4/);
   assert.match(source, /const largeCardWidth = 158/);
   assert.match(source, /const largeCardHeight = 224/);
-  assert.match(source, /const width = 318;[\s\S]{0,80}const height = 682/);
+  assert.match(source, /const width = 318;[\s\S]{0,80}const height = 730/);
 });
 
 test("splits noses, philtrums, mouths, and moustache attachments into six construction families", () => {
@@ -1988,8 +2105,8 @@ test("resolved attacks clear only stale selection prompts before combat feedback
   const cancelEnd = source.indexOf("function activateTarget", cancelStart);
   assert.match(source.slice(cancelStart, cancelEnd), /clearSelectionPrompt\(\)/);
   assert.match(source, /showToast\("공격할 적을 선택하세요\.", "normal", "selection-prompt"\)/);
-  assert.match(source, /showToast\("빛나는 대상에 카드를 사용하세요\.", "normal", "selection-prompt"\)/);
-  assert.match(source, /"전장에 놓거나 다시 눌러 사용",[\s\S]{0,50}"normal",[\s\S]{0,50}"selection-prompt"/);
+  assert.match(source, /"빛나는 대상에 카드를 사용하세요\."/);
+  assert.match(source, /"빛나는 전열·후열 빈칸을 선택하세요\."[\s\S]{0,50}"normal",[\s\S]{0,50}"selection-prompt"/);
   const eventStart = source.indexOf("function handleEvent");
   const attackStart = source.indexOf('type === "attack:start"', eventStart);
   const cardPlayStart = source.indexOf('type === "card:play"', attackStart);

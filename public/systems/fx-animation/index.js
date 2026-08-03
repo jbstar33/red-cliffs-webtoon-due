@@ -21,12 +21,26 @@
   var WATER_BLUE = "#4d91ff";
   var ROPE_TAN = "#d5a55d";
   var SEAL_IVORY = "#ffe1a0";
+  var FORMATION_FRONT = "#ffb35d";
+  var FORMATION_REAR = "#9cc7ff";
+  var BROTHER_GREEN = "#72ef9b";
+  var STRATEGY_BLUE = "#83baff";
+  var KINDLE_ORANGE = "#ff7b3d";
+  var COUNTER_VIOLET = "#b596ff";
   var MAX_PARTICLES = 420;
   var MAX_JOBS = 72;
   var LAYER_UNDER = 0;
   var LAYER_ACTION = 1;
   var LAYER_FEEDBACK = 2;
   var LAYER_OVERLAY = 3;
+  var SEMANTIC_EFFECT_OPS = Object.freeze({
+    duel_target: true,
+    weaken_enemy_front: true,
+    empty_fort: true,
+    patience_counter: true,
+    apply_burning_all: true,
+    faction_link: true
+  });
 
   function clamp(value, min, max) {
     return value < min ? min : value > max ? max : value;
@@ -929,6 +943,11 @@
       if (shouldCoalesceEffect(detail)) return;
       var style = styleForEffect(detail);
       var result = detail && detail.result;
+      var semanticOp = String(detail && detail.op || "");
+      if (SEMANTIC_EFFECT_OPS[semanticOp] &&
+          !(result && (result.fizzled || result.success === false))) {
+        return;
+      }
       if (result && typeof result === "object") {
         if (result.fizzled || result.success === false) {
           var fizzledAt = resultSourceAnchor(detail);
@@ -1311,6 +1330,186 @@
       // The semantic lock event owns that visual so the lasso is never doubled.
     }
 
+    function tacticalAnchor(reference, detail, fallbackRole) {
+      return resultReferencePoint(
+        reference || detail && detail.target || null,
+        fallbackRole || "minion",
+        detail || {}
+      );
+    }
+
+    function addTacticalCue(kind, duration, detail, presentation) {
+      presentation = presentation || {};
+      var target = presentation.target || detail.target || null;
+      var at = tacticalAnchor(target, detail, presentation.fallbackRole || "minion");
+      return addJob(kind, Math.min(0.8, duration), {
+        x: at.x,
+        y: at.y,
+        x1: presentation.x1,
+        y1: presentation.y1,
+        x2: presentation.x2,
+        y2: presentation.y2,
+        color: presentation.color || GOLD,
+        secondaryColor: presentation.secondaryColor || PALE_GOLD,
+        label: presentation.label || "",
+        signature: presentation.signature || kind,
+        status: presentation.status || detail.phase || detail.status || null,
+        row: presentation.row || detail.row || detail.placement && detail.placement.row || null,
+        slot: Number.isInteger(presentation.slot) ? presentation.slot :
+          Number.isInteger(detail.slot) ? detail.slot :
+            detail.placement && Number.isInteger(detail.placement.slot) ?
+              detail.placement.slot : null,
+        linkKind: presentation.linkKind || detail.linkKind || null,
+        targetIndex: target && Number.isInteger(target.index) ? target.index : null,
+        anchorRole: presentation.fallbackRole || "minion",
+        anchorSide: target && target.side || detail.side || null,
+        layer: Number.isFinite(presentation.layer) ? presentation.layer : LAYER_FEEDBACK,
+        cueAt: Math.min(0.2, Number(presentation.cueAt) || 0.1)
+      });
+    }
+
+    function triggerFormationPlace(detail) {
+      var placement = detail.placement || {};
+      var row = detail.row || placement.row || "front";
+      addTacticalCue("formation-place", 0.58, detail, {
+        target: detail.target,
+        color: row === "rear" ? FORMATION_REAR : FORMATION_FRONT,
+        secondaryColor: row === "rear" ? STRATEGY_BLUE : PALE_GOLD,
+        label: row === "rear" ? "후열 배치" : "전열 배치",
+        signature: "formation:" + row + ":place",
+        row: row,
+        slot: Number.isInteger(detail.slot) ? detail.slot : placement.slot,
+        layer: LAYER_UNDER,
+        cueAt: 0.08
+      });
+    }
+
+    function triggerFormationBlock(detail) {
+      var target = detail.target ||
+        Array.isArray(detail.frontTargets) && detail.frontTargets[0] || null;
+      addTacticalCue("formation-block", 0.66, detail, {
+        target: target,
+        color: STEEL,
+        secondaryColor: FORMATION_FRONT,
+        label: "전열 보호",
+        signature: "formation:front-wall",
+        layer: LAYER_FEEDBACK,
+        cueAt: 0.12
+      });
+    }
+
+    function triggerFactionLink(detail) {
+      var linkKind = detail.linkKind || detail.result && detail.result.linkKind || "";
+      var presentation = {
+        brotherhood: { color: BROTHER_GREEN, secondary: PALE_GOLD, label: "의형제" },
+        strategy: { color: STRATEGY_BLUE, secondary: PALE_GOLD, label: "군략" },
+        kindle: { color: KINDLE_ORANGE, secondary: GOLD, label: "연화" },
+        raid: { color: ROPE_TAN, secondary: SEAL_IVORY, label: "약탈" }
+      }[linkKind] || { color: VIOLET, secondary: PALE_GOLD, label: detail.linkName || "연계" };
+      var source = sourceBoardReference(detail) ||
+        (detail.source && typeof detail.source === "object" ? detail.source : {
+          zone: "board",
+          side: detail.side || detail.actor,
+          instanceId: identityPart(detail.source)
+        });
+      addTacticalCue("faction-link", 0.74, detail, {
+        target: source,
+        color: presentation.color,
+        secondaryColor: presentation.secondary,
+        label: detail.linkName || presentation.label,
+        signature: "faction-link:" + (linkKind || "unknown"),
+        linkKind: linkKind,
+        cueAt: 0.14
+      });
+    }
+
+    function triggerDuel(type, detail) {
+      var source = detail.source || detail.attacker || null;
+      var target = detail.target || null;
+      var from = tacticalAnchor(source, detail, "minion");
+      var to = tacticalAnchor(target, detail, "minion");
+      if (type === "duel:start") {
+        addTacticalCue("duel-start", 0.72, detail, {
+          target: target,
+          x1: from.x,
+          y1: from.y,
+          x2: to.x,
+          y2: to.y,
+          color: RED,
+          secondaryColor: PALE_GOLD,
+          label: "일기토",
+          signature: "duel:crossing-blades",
+          layer: LAYER_ACTION,
+          cueAt: 0.2
+        });
+      } else {
+        addTacticalCue("duel-hit", 0.56, detail, {
+          target: target,
+          color: RED,
+          secondaryColor: PALE_GOLD,
+          label: detail.targetDied ? "승부" : "격돌",
+          signature: "duel:verdict",
+          cueAt: 0.07
+        });
+      }
+    }
+
+    function triggerStatus(type, detail) {
+      var target = detail.target || null;
+      if (type === "status:burn") {
+        addTacticalCue("status-burn", 0.6, detail, {
+          target: target,
+          color: KINDLE_ORANGE,
+          secondaryColor: "#ffd36a",
+          label: detail.phase === "tick" ? "화상 " + (Number(detail.amount) || 1) : "화상",
+          signature: "status:burn:" + (detail.phase || "applied"),
+          status: detail.phase || "applied",
+          cueAt: 0.08
+        });
+      } else if (type === "status:counter") {
+        addTacticalCue("status-counter", 0.7, detail, {
+          target: target,
+          color: COUNTER_VIOLET,
+          secondaryColor: STRATEGY_BLUE,
+          label: detail.phase === "released" ? "반계" : "인내",
+          signature: "status:counter:" + (detail.phase || "stored"),
+          status: detail.phase || "stored",
+          cueAt: detail.phase === "released" ? 0.14 : 0.08
+        });
+      } else if (type === "status:intimidate") {
+        addTacticalCue("status-intimidate", 0.62, detail, {
+          target: target,
+          color: RED,
+          secondaryColor: INK,
+          label: "호통 -" + (Number(detail.amount) || 1),
+          signature: "status:intimidate",
+          cueAt: 0.1
+        });
+      } else if (type === "status:empty-fort") {
+        addTacticalCue("status-empty-fort", 0.76, detail, {
+          target: target,
+          fallbackRole: "hero",
+          color: HEAL_WHITE,
+          secondaryColor: STRATEGY_BLUE,
+          label: detail.phase === "armed" ? "공성계" : "허실",
+          signature: "status:empty-fort:" + (detail.phase || "blocked"),
+          status: detail.phase || "blocked",
+          layer: LAYER_OVERLAY,
+          cueAt: 0.12
+        });
+      } else if (type === "status:raid") {
+        addTacticalCue("status-raid", 0.68, detail, {
+          target: target,
+          color: ROPE_TAN,
+          secondaryColor: SEAL_IVORY,
+          label: detail.phase === "active" ? "공격 봉쇄" : "약탈",
+          signature: "status:raid:" + (detail.phase || "pending"),
+          status: detail.phase || "pending",
+          cueAt: 0.11
+        });
+      }
+    }
+
     function handleEvent(type, detail) {
       if (destroyed) return;
       detail = detail || {};
@@ -1383,6 +1582,26 @@
         case "commander:lock":
           triggerNomadLock(detail);
           break;
+        case "formation:place":
+          triggerFormationPlace(detail);
+          break;
+        case "formation:block":
+          triggerFormationBlock(detail);
+          break;
+        case "faction:link":
+          triggerFactionLink(detail);
+          break;
+        case "duel:start":
+        case "duel:hit":
+          triggerDuel(type, detail);
+          break;
+        case "status:burn":
+        case "status:counter":
+        case "status:intimidate":
+        case "status:empty-fort":
+        case "status:raid":
+          triggerStatus(type, detail);
+          break;
         case "game:end":
           triggerEnd(detail);
           break;
@@ -1395,6 +1614,7 @@
             }));
             break;
           }
+          if (detail.blockedByFormation) break;
           var invalidAt = resolveAnchor("card", detail);
           addJob("invalid", 0.55, {
             x: invalidAt.x, y: invalidAt.y,
@@ -1644,6 +1864,31 @@
           kind: "shard", gravity: 138, drag: 1.05
         });
         shake(1.9);
+      } else if (
+        job.kind === "formation-place" ||
+        job.kind === "formation-block" ||
+        job.kind === "faction-link" ||
+        job.kind === "duel-start" ||
+        job.kind === "duel-hit" ||
+        job.kind.indexOf("status-") === 0
+      ) {
+        if (reduceMotion) return;
+        var tacticalParticle = job.kind === "status-burn" ? "ember" :
+          job.kind === "formation-block" ? "shard" :
+            job.kind === "status-raid" ? "glyph" : "spark";
+        burst(at, job.kind === "duel-hit" ? 15 : 10, {
+          color: job.color,
+          minSpeed: 28,
+          maxSpeed: job.kind === "duel-hit" ? 168 : 108,
+          minLife: 0.18,
+          maxLife: 0.44,
+          minSize: 2,
+          maxSize: 6,
+          kind: tacticalParticle,
+          gravity: job.kind === "status-burn" ? -42 : 0,
+          drag: 2
+        });
+        if (job.kind === "duel-hit" || job.kind === "formation-block") shake(1.7);
       } else if (job.kind === "effect") {
         burst(at, job.family === "damage" ? 16 : 12, {
           color: job.color,
@@ -2691,6 +2936,228 @@
       ctx.restore();
     }
 
+    function drawTacticalLabel(ctx, job, alpha, rise) {
+      if (!job.label) return;
+      ctx.save();
+      ctx.translate(job.x, job.y - 62 - (rise || 0));
+      ctx.globalAlpha = alpha;
+      ctx.font = "800 16px 'Malgun Gothic',sans-serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      var width = Math.min(190, ctx.measureText(job.label).width + 28);
+      ctx.fillStyle = "rgba(10,13,17,.91)";
+      roundedRect(ctx, -width * 0.5, -16, width, 32, 10);
+      ctx.fill();
+      ctx.strokeStyle = rgba(job.color, 0.86);
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+      ctx.fillStyle = job.secondaryColor || job.color;
+      ctx.fillText(job.label, 0, 0, width - 16);
+      ctx.restore();
+    }
+
+    function drawTacticalCue(ctx, job) {
+      var t = clamp(job.age / job.duration, 0, 1);
+      var enter = easeOutBack(phase(t, 0, 0.34));
+      var fade = 1 - easeInCubic(phase(t, 0.62, 1));
+      var alpha = clamp(enter * fade, 0, 1);
+      var pulse = Math.sin(clamp(t / 0.72, 0, 1) * Math.PI);
+      var radius = lerp(24, 58, easeOutQuart(t));
+      ctx.save();
+      ctx.translate(job.x, job.y);
+      ctx.globalAlpha = alpha;
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+
+      if (job.kind === "formation-place") {
+        ctx.globalCompositeOperation = "lighter";
+        ctx.save();
+        ctx.scale(1, 0.34);
+        ctx.strokeStyle = rgba(job.color, 0.94);
+        ctx.lineWidth = lerp(7, 1.5, t);
+        ctx.beginPath();
+        ctx.arc(0, 0, radius * 1.18, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.strokeStyle = rgba(job.secondaryColor, 0.72);
+        ctx.beginPath();
+        ctx.arc(0, 0, radius * 0.68, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.restore();
+        ctx.strokeStyle = rgba(job.color, 0.82 * alpha);
+        ctx.lineWidth = 3;
+        for (var notch = -1; notch <= 1; notch += 1) {
+          ctx.beginPath();
+          ctx.moveTo(notch * 18, 18);
+          ctx.lineTo(notch * 18, -18 - pulse * 14);
+          ctx.stroke();
+        }
+      } else if (job.kind === "formation-block") {
+        ctx.fillStyle = rgba(job.color, 0.1 * alpha);
+        roundedRect(ctx, -54, -49, 108, 98, 18);
+        ctx.fill();
+        ctx.strokeStyle = rgba(job.color, 0.92);
+        ctx.lineWidth = lerp(7, 2, t);
+        ctx.stroke();
+        for (var bar = -1; bar <= 1; bar += 1) {
+          ctx.beginPath();
+          ctx.moveTo(bar * 27, -38);
+          ctx.lineTo(bar * 27, 38);
+          ctx.stroke();
+        }
+        ctx.strokeStyle = rgba(job.secondaryColor, 0.9 * pulse);
+        ctx.lineWidth = 4;
+        ctx.beginPath();
+        ctx.arc(0, -4, 14, Math.PI, 0);
+        ctx.lineTo(14, 22);
+        ctx.lineTo(-14, 22);
+        ctx.closePath();
+        ctx.stroke();
+      } else if (job.kind === "faction-link") {
+        ctx.globalCompositeOperation = "lighter";
+        ctx.strokeStyle = rgba(job.color, 0.94);
+        ctx.lineWidth = lerp(6, 2, t);
+        ctx.beginPath();
+        ctx.arc(-18, 0, radius * 0.42, -Math.PI * 0.78, Math.PI * 0.78);
+        ctx.stroke();
+        ctx.strokeStyle = rgba(job.secondaryColor, 0.9);
+        ctx.beginPath();
+        ctx.arc(18, 0, radius * 0.42, Math.PI * 0.22, Math.PI * 1.78);
+        ctx.stroke();
+        for (var ray = 0; ray < 6; ray += 1) {
+          var rayAngle = ray * Math.PI / 3 + t * 0.35;
+          ctx.beginPath();
+          ctx.moveTo(Math.cos(rayAngle) * 42, Math.sin(rayAngle) * 42);
+          ctx.lineTo(Math.cos(rayAngle) * (54 + pulse * 8),
+            Math.sin(rayAngle) * (54 + pulse * 8));
+          ctx.stroke();
+        }
+      } else if (job.kind === "duel-start") {
+        ctx.restore();
+        ctx.save();
+        ctx.globalAlpha = alpha;
+        ctx.strokeStyle = rgba(job.color, 0.92);
+        ctx.lineWidth = lerp(8, 2, t);
+        ctx.beginPath();
+        ctx.moveTo(job.x1, job.y1);
+        ctx.quadraticCurveTo(
+          (job.x1 + job.x2) * 0.5,
+          (job.y1 + job.y2) * 0.5 - 38,
+          job.x2,
+          job.y2
+        );
+        ctx.stroke();
+        ctx.strokeStyle = rgba(job.secondaryColor, 0.9);
+        ctx.beginPath();
+        ctx.moveTo(job.x2, job.y2);
+        ctx.quadraticCurveTo(
+          (job.x1 + job.x2) * 0.5,
+          (job.y1 + job.y2) * 0.5 + 38,
+          job.x1,
+          job.y1
+        );
+        ctx.stroke();
+        ctx.restore();
+        ctx.save();
+        ctx.translate(job.x, job.y);
+        ctx.globalAlpha = alpha;
+        drawDirectionalSlash(ctx, 0, 0, -0.65, t, alpha, job.color, 0.72);
+        drawDirectionalSlash(ctx, 0, 0, 0.65, t, alpha, job.secondaryColor, 0.72);
+      } else if (job.kind === "duel-hit") {
+        drawDirectionalSlash(ctx, 0, 0, -0.72, t, alpha, job.color, 0.82);
+        drawDirectionalSlash(ctx, 0, 0, 0.72, t, alpha, job.secondaryColor, 0.82);
+        ctx.strokeStyle = rgba(job.color, 0.86 * pulse);
+        ctx.lineWidth = lerp(8, 1, t);
+        ctx.beginPath();
+        ctx.arc(0, 0, radius, 0, Math.PI * 2);
+        ctx.stroke();
+      } else if (job.kind === "status-burn") {
+        ctx.globalCompositeOperation = "lighter";
+        ctx.fillStyle = rgba(job.color, 0.74 * alpha);
+        for (var flame = -1; flame <= 1; flame += 1) {
+          ctx.save();
+          ctx.translate(flame * 17, 10);
+          ctx.beginPath();
+          ctx.moveTo(0, 22);
+          ctx.quadraticCurveTo(-14, 0, flame * 3, -36 - pulse * 12);
+          ctx.quadraticCurveTo(17, -2, 0, 22);
+          ctx.fill();
+          ctx.restore();
+        }
+      } else if (job.kind === "status-counter") {
+        ctx.globalCompositeOperation = "lighter";
+        ctx.strokeStyle = rgba(job.color, 0.9);
+        ctx.lineWidth = 4;
+        ctx.beginPath();
+        ctx.arc(0, 0, radius * 0.75, -Math.PI * 0.85 + t * 2,
+          Math.PI * 0.65 + t * 2);
+        ctx.stroke();
+        ctx.strokeStyle = rgba(job.secondaryColor, 0.88);
+        ctx.beginPath();
+        ctx.arc(0, 0, radius * 0.48, Math.PI * 0.15 - t * 2.4,
+          Math.PI * 1.55 - t * 2.4);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(22, -17);
+        ctx.lineTo(34, -7);
+        ctx.lineTo(19, -3);
+        ctx.stroke();
+      } else if (job.kind === "status-intimidate") {
+        ctx.strokeStyle = rgba(job.color, 0.9);
+        for (var wave = 0; wave < 3; wave += 1) {
+          ctx.lineWidth = 5 - wave;
+          ctx.beginPath();
+          ctx.arc(-26, 0, 24 + wave * 16 + t * 10,
+            -Math.PI * 0.42, Math.PI * 0.42);
+          ctx.stroke();
+        }
+        ctx.fillStyle = rgba(job.secondaryColor, 0.62 * alpha);
+        ctx.beginPath();
+        ctx.moveTo(-48, -18);
+        ctx.lineTo(-18, 0);
+        ctx.lineTo(-48, 18);
+        ctx.closePath();
+        ctx.fill();
+      } else if (job.kind === "status-empty-fort") {
+        ctx.strokeStyle = rgba(job.color, 0.9);
+        ctx.lineWidth = 4;
+        roundedRect(ctx, -42, -37, 84, 74, 7);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(-28, 36);
+        ctx.lineTo(-28, -18);
+        ctx.lineTo(0, -34);
+        ctx.lineTo(28, -18);
+        ctx.lineTo(28, 36);
+        ctx.stroke();
+        ctx.strokeStyle = rgba(job.secondaryColor, 0.74 * pulse);
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(0, 0, radius, 0, Math.PI * 2);
+        ctx.moveTo(-radius, 0);
+        ctx.lineTo(radius, 0);
+        ctx.stroke();
+      } else if (job.kind === "status-raid") {
+        ctx.strokeStyle = rgba(job.color, 0.94);
+        ctx.lineWidth = 5;
+        ctx.beginPath();
+        ctx.arc(0, 0, radius * 0.72, -Math.PI * 0.75, Math.PI * 0.85);
+        ctx.stroke();
+        ctx.strokeStyle = rgba(job.secondaryColor, 0.9);
+        for (var claw = -1; claw <= 1; claw += 1) {
+          ctx.beginPath();
+          ctx.moveTo(-28 + claw * 12, -32);
+          ctx.quadraticCurveTo(claw * 9, 0, 28 + claw * 12, 32);
+          ctx.stroke();
+        }
+        ctx.fillStyle = rgba(job.color, 0.48 * pulse);
+        ctx.beginPath();
+        ctx.arc(0, 0, 9 + pulse * 5, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.restore();
+      drawTacticalLabel(ctx, job, alpha, easeOutCubic(t) * 14);
+    }
+
     function drawTarget(ctx, job) {
       var anticipation = phase(job.age, 0, 0.16);
       var settle = phase(job.age, 0.16, job.duration);
@@ -3514,6 +3981,17 @@
         case "commander-flood": drawCommanderFlood(ctx, job); break;
         case "commander-flood-hit": drawCommanderFloodHit(ctx, job); break;
         case "commander-lock": drawCommanderLock(ctx, job); break;
+        case "formation-place":
+        case "formation-block":
+        case "faction-link":
+        case "duel-start":
+        case "duel-hit":
+        case "status-burn":
+        case "status-counter":
+        case "status-intimidate":
+        case "status-empty-fort":
+        case "status-raid":
+          drawTacticalCue(ctx, job); break;
         case "draw": drawDraw(ctx, job); break;
         case "invalid": drawInvalid(ctx, job); break;
         case "finale": drawFinale(ctx, job); break;
@@ -3603,6 +4081,9 @@
               commanderId: job.commanderId || null,
               signature: job.signature || null,
               status: job.status || null,
+              row: job.row || null,
+              slot: Number.isInteger(job.slot) ? job.slot : null,
+              linkKind: job.linkKind || null,
               secondaryColor: job.secondaryColor || null,
               targetCount: Number(job.targetCount) || 0,
               targetKind: job.targetKind || null,

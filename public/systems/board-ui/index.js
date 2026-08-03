@@ -20,6 +20,10 @@
   const BOARD_RENDER_SCALE_MIN = 0.5;
   const BOARD_RENDER_SCALE_MAX = 2;
   const BOARD_AMBIENT_FRAME_MS = 100;
+  const FORMATION_ROWS = Object.freeze(["front", "rear"]);
+  const FORMATION_SLOT_COUNT = 3;
+  const FORMATION_CARD_WIDTH = 112;
+  const FORMATION_CARD_HEIGHT = 92;
   const TAU = Math.PI * 2;
   const SYSTEM_FONT = '"Noto Serif KR", "Nanum Myeongjo", "Malgun Gothic", serif';
   const UI_FONT = '"Noto Sans KR", "Malgun Gothic", system-ui, sans-serif';
@@ -129,6 +133,12 @@
     방패: "이 장수가 받는 다음 한 번의 피해를 막습니다.",
     출전: "이 카드를 손에서 낼 때 한 번 발동합니다.",
     유언: "이 장수가 쓰러질 때 한 번 발동합니다.",
+    돌파: "상대 전열이 남아 있어도 후열 장수를 공격할 수 있습니다. 수호는 무시하지 못합니다.",
+    의형제: "다른 촉 아군과 함께 있을 때 자신과 체력이 가장 낮은 촉 아군의 체력이 1 증가합니다.",
+    군략: "다른 위 아군과 함께 있을 때 손의 최고 비용 카드 하나의 비용이 1 감소합니다.",
+    연화: "다른 오 아군과 함께 있을 때 적 장수 하나에게 화상을 1 부여합니다.",
+    약탈: "다른 이민족 아군과 함께 있을 때 적 장수 하나의 다음 공격을 봉쇄합니다.",
+    천하무쌍: "매 턴 두 번 공격할 수 있지만 두 번째 공격 뒤 턴 종료에 피해를 2 받습니다.",
   });
 
   const UX_CODE_MESSAGES = Object.freeze({
@@ -503,7 +513,7 @@
       : text.length;
     const segment = text.slice(start, end).trim();
     const definition = segment.slice(marker.length).trim();
-    if (!definition.endsWith(".") || definition.slice(0, -1).includes(".")) return "";
+    if (!definition.endsWith(".")) return "";
     return segment;
   }
 
@@ -595,6 +605,73 @@
       .trim();
   }
 
+  function inspectorStrategyRows(card) {
+    const tactics = getCardValue(card, "tactics", {}) || {};
+    const abilities = getCardValue(card, "abilities", []) || [];
+    const rows = [];
+    if (tactics.placement) rows.push({ label: "배치 추천", text: String(tactics.placement) });
+    if (tactics.linkCondition) rows.push({ label: "연계 조건", text: String(tactics.linkCondition) });
+    if (tactics.statusDuration) rows.push({ label: "상태 지속", text: String(tactics.statusDuration) });
+
+    if (!tactics.placement) {
+      const rowAbility = abilities.find((ability) => ability && ability.requiredRow);
+      if (rowAbility && rowAbility.requiredRow === "rear") {
+        rows.push({ label: "배치 추천", text: "후열 배치가 고유 능력의 발동 조건입니다." });
+      }
+    }
+    if (!tactics.linkCondition) {
+      const linkAbility = abilities.find((ability) => ability && ability.op === "faction_link");
+      const linkNames = {
+        brotherhood: "의형제",
+        strategy: "군략",
+        kindle: "연화",
+        raid: "약탈",
+      };
+      if (linkAbility) {
+        rows.push({
+          label: "연계 조건",
+          text: `같은 연계 진영의 다른 아군이 있으면 ${linkNames[linkAbility.linkKind] || "연계"} 발동.`,
+        });
+      }
+    }
+    if (!tactics.statusDuration) {
+      const timedAbility = abilities.find((ability) => ability && ability.duration);
+      const durations = {
+        thisTurn: "출전한 이번 턴까지 유지됩니다.",
+        ownerTurnEnd: "해당 장수 진영의 턴 종료까지 처리됩니다.",
+        nextEnemyTurnEnd: "다음 적 턴이 끝날 때까지 유지됩니다.",
+      };
+      if (timedAbility) {
+        rows.push({
+          label: "상태 지속",
+          text: durations[timedAbility.duration] || String(timedAbility.duration),
+        });
+      }
+    }
+    return rows.slice(0, 3);
+  }
+
+  function inspectorRuntimeStatusRows(card) {
+    const rows = [];
+    const burning = Math.max(0, Number(getCardValue(card, "burning", 0)) || 0);
+    const attackPenalty = Math.max(0, Number(getCardValue(card, "attackPenalty", 0)) || 0);
+    const storedCounter = Math.max(0, Number(getCardValue(card, "storedCounter", 0)) || 0);
+    if (burning > 0) rows.push({ label: "화상", text: `턴 종료에 피해 ${burning}, 이후 1 감소` });
+    if (attackPenalty > 0) rows.push({ label: "호통", text: `공격력 ${attackPenalty} 감소 중` });
+    if (storedCounter > 0) rows.push({ label: "반계", text: `다음 내 턴에 피해 ${storedCounter} 방출` });
+    if (getCardValue(card, "attackLockPending", false)) {
+      rows.push({ label: "봉쇄", text: "다음 공격 1회 불가" });
+    } else if (getCardValue(card, "attackLockedThisTurn", false)) {
+      rows.push({ label: "봉쇄", text: "이번 턴 공격 불가" });
+    }
+    if (getCardValue(card, "emptyFort", false)) rows.push({ label: "공성계", text: "지휘관 공격 피해 1회 무효" });
+    if (getCardValue(card, "secondAttackPenalty", false)) rows.push({ label: "반동", text: "턴 종료에 자신에게 피해 2" });
+    if (getCardValue(card, "formationProtected", false)) {
+      rows.unshift({ label: "후열 보호", text: "전열이 보호 중 — 저격·돌파 외에는 공격 불가" });
+    }
+    return rows;
+  }
+
   function inspectorContentModel(card, keywordDetails) {
     const abilityText = normalizeInspectorAbilityText(card, keywordDetails);
     return {
@@ -608,6 +685,8 @@
         label: entry.label,
         definition: entry.definition,
       })),
+      strategyRows: inspectorStrategyRows(card),
+      statusRows: inspectorRuntimeStatusRows(card),
     };
   }
 
@@ -627,13 +706,15 @@
       keywordSpeech.length
         ? `발동 및 키워드 ${keywordSpeech.join(" ")}`
         : "키워드 없음",
+      ...inspectorStrategyRows(card).map((row) => `${row.label}: ${row.text}`),
+      ...inspectorRuntimeStatusRows(card).map((row) => `현재 ${row.label}: ${row.text}`),
     ].filter(Boolean).join(", ");
   }
 
   function calculateInspectorTextLayout(ctx, card, width, maxHeight, keywordDetails) {
     const content = inspectorContentModel(card, keywordDetails);
     const flavor = String(getCardValue(card, "flavor", "서사에 이름을 남긴 장수."));
-    const sizes = [19, 18, 17, 16, 15, 14];
+    const sizes = [17, 16, 15, 14, 13, 12, 11];
     let chosen = null;
     sizes.some((fontSize) => {
       const lineHeight = Math.round(fontSize * 1.45);
@@ -641,10 +722,10 @@
       const abilityLines = content.abilityText
         ? semanticTextLines(ctx, content.abilityText, width, 99)
         : [];
-      const keywordRows = content.keywordRows.map((entry) => {
-        ctx.font = `900 15px ${UI_FONT}`;
-        const chipWidth = clamp(ctx.measureText(entry.label || entry.name).width + 24, 62, 105);
-        ctx.font = `650 16px ${UI_FONT}`;
+      const detailedKeywordRows = content.keywordRows.map((entry) => {
+        ctx.font = `900 ${Math.max(11, fontSize - 1)}px ${UI_FONT}`;
+        const chipWidth = clamp(ctx.measureText(entry.label || entry.name).width + 20, 56, 96);
+        ctx.font = `650 ${fontSize}px ${UI_FONT}`;
         const definitionLines = semanticTextLines(
           ctx,
           entry.definition,
@@ -655,18 +736,65 @@
           ...entry,
           chipWidth,
           definitionLines,
-          height: Math.max(31, definitionLines.length * 21 + 5),
+          height: Math.max(27, definitionLines.length * Math.max(16, lineHeight - 1) + 4),
+        };
+      });
+      let keywordRows = detailedKeywordRows;
+      if (detailedKeywordRows.length >= 3) {
+        ctx.font = `700 ${fontSize}px ${UI_FONT}`;
+        const summaryText = detailedKeywordRows
+          .map((entry) => `${entry.label || entry.name}: ${entry.definition}`)
+          .join(" · ");
+        const definitionLines = semanticTextLines(ctx, summaryText, width, 99);
+        keywordRows = [{
+          name: "keyword-summary",
+          label: "핵심 키워드",
+          definition: summaryText,
+          definitionLines,
+          chipWidth: 0,
+          summary: true,
+          height: Math.max(27, definitionLines.length * Math.max(15, lineHeight - 1) + 3),
+        }];
+      }
+      const strategyRows = [
+        ...content.strategyRows.map((entry) => ({ ...entry, section: "strategy" })),
+        ...(content.statusRows.length
+          ? [{
+            label: "현재 상태",
+            text: content.statusRows.map((entry) => `${entry.label}: ${entry.text}`).join(" · "),
+            section: "status",
+          }]
+          : []),
+      ].map((entry) => {
+        ctx.font = `750 ${Math.max(11, fontSize - 1)}px ${UI_FONT}`;
+        const strategyLineHeight = Math.max(15, lineHeight - 2);
+        const lines = semanticTextLines(
+          ctx,
+          entry.text,
+          width - 90,
+          entry.section === "status" ? 6 : 2,
+        );
+        return {
+          ...entry,
+          lines,
+          height: Math.max(18, lines.length * strategyLineHeight),
         };
       });
       ctx.font = `italic 600 16px ${SYSTEM_FONT}`;
-      const flavorLines = semanticTextLines(ctx, flavor, width, 99);
+      const flavorLineLimit = content.strategyRows.length || content.keywordRows.length >= 3 ? 1 : 2;
+      const flavorLines = content.statusRows.length
+        ? []
+        : semanticTextLines(ctx, flavor, width, flavorLineLimit);
       const abilityHeight = abilityLines.length * lineHeight;
-      const abilityBlockHeight = abilityLines.length ? 25 + abilityHeight + 10 : 0;
+      const abilityBlockHeight = abilityLines.length ? 20 + abilityHeight + 5 : 0;
       const keywordHeight = keywordRows.length
-        ? 29 + keywordRows.reduce((sum, row) => sum + row.height + 4, 0)
+        ? 20 + keywordRows.reduce((sum, row) => sum + row.height + 3, 0)
         : 0;
-      const flavorHeight = 40 + Math.max(1, flavorLines.length) * 22;
-      const totalHeight = abilityBlockHeight + keywordHeight + flavorHeight;
+      const strategyHeight = strategyRows.length
+        ? 20 + strategyRows.reduce((sum, row) => sum + row.height + 3, 0)
+        : 0;
+      const flavorHeight = flavorLines.length ? 28 + flavorLines.length * 16 : 0;
+      const totalHeight = abilityBlockHeight + keywordHeight + strategyHeight + flavorHeight;
       chosen = {
         fontSize,
         lineHeight,
@@ -674,6 +802,7 @@
         hasAbility: abilityLines.length > 0,
         abilityLines,
         keywordRows,
+        strategyRows,
         flavorLines,
         abilityBlockHeight,
         keywordHeight,
@@ -8200,17 +8329,87 @@
     return "ready";
   }
 
-  function boardSlotGeometry(side, count, index) {
-    const width = 124;
-    const height = 148;
-    const gap = 14;
-    const totalWidth = count * width + Math.max(0, count - 1) * gap;
+  function normalizeFormationPlacement(value) {
+    if (!value || !FORMATION_ROWS.includes(value.row)) return null;
+    const slot = Number(value.slot);
+    if (!Number.isInteger(slot) || slot < 0 || slot >= FORMATION_SLOT_COUNT) return null;
+    return { row: value.row, slot };
+  }
+
+  function formationBoardLayout(board) {
+    const roster = Array.isArray(board) ? board : [];
+    const occupied = new Set();
+    const placements = new Array(roster.length);
+    roster.forEach((minion, index) => {
+      const placement = normalizeFormationPlacement(minion);
+      const key = placement && `${placement.row}:${placement.slot}`;
+      if (placement && !occupied.has(key)) {
+        placements[index] = placement;
+        occupied.add(key);
+      }
+    });
+    roster.forEach((minion, index) => {
+      if (placements[index]) return;
+      for (const row of FORMATION_ROWS) {
+        for (let slot = 0; slot < FORMATION_SLOT_COUNT; slot += 1) {
+          const key = `${row}:${slot}`;
+          if (occupied.has(key)) continue;
+          placements[index] = { row, slot };
+          occupied.add(key);
+          return;
+        }
+      }
+    });
+    return placements;
+  }
+
+  function availableFormationPlacements(board) {
+    const occupied = new Set(
+      formationBoardLayout(board)
+        .filter(Boolean)
+        .map((placement) => `${placement.row}:${placement.slot}`),
+    );
+    const available = [];
+    FORMATION_ROWS.forEach((row) => {
+      for (let slot = 0; slot < FORMATION_SLOT_COUNT; slot += 1) {
+        if (!occupied.has(`${row}:${slot}`)) available.push({ row, slot });
+      }
+    });
+    return available;
+  }
+
+  function formationSlotGeometry(side, row, slot) {
+    const horizontalGap = 18;
+    const formationWidth = FORMATION_CARD_WIDTH * FORMATION_SLOT_COUNT
+      + horizontalGap * (FORMATION_SLOT_COUNT - 1);
+    const x = LOGICAL_WIDTH / 2 - formationWidth / 2
+      + slot * (FORMATION_CARD_WIDTH + horizontalGap);
+    const yBySide = side === "ai"
+      ? { rear: 171, front: 269 }
+      : { front: 371, rear: 469 };
     return {
-      x: LOGICAL_WIDTH / 2 - totalWidth / 2 + index * (width + gap),
-      y: side === "ai" ? 178 : 397,
-      width,
-      height,
+      x,
+      y: yBySide[row] == null ? yBySide.front : yBySide[row],
+      width: FORMATION_CARD_WIDTH,
+      height: FORMATION_CARD_HEIGHT,
+      side,
+      row,
+      slot,
     };
+  }
+
+  function boardSlotGeometry(side, count, index) {
+    const fallbackOrder = [
+      { row: "front", slot: 0 },
+      { row: "front", slot: 1 },
+      { row: "front", slot: 2 },
+      { row: "rear", slot: 0 },
+      { row: "rear", slot: 1 },
+      { row: "rear", slot: 2 },
+    ];
+    const safeIndex = clamp(Number(index) || 0, 0, fallbackOrder.length - 1);
+    const placement = fallbackOrder[safeIndex];
+    return formationSlotGeometry(side, placement.row, placement.slot);
   }
 
   function playerHandLayoutGeometry(count, index) {
@@ -8248,11 +8447,11 @@
 
   function inspectionPanelGeometry(panelSide) {
     const width = 318;
-    const height = 682;
+    const height = 730;
     const edgeGap = 12;
     return {
       x: panelSide === "right" ? LOGICAL_WIDTH - width - edgeGap : edgeGap,
-      y: 43,
+      y: 19,
       width,
       height,
     };
@@ -8262,7 +8461,7 @@
     if (panelSide === "right") {
       // A right-side inspector occupies the normal turn rail. Dock the action
       // into the 71px lane between minion rows while preserving a 60px target.
-      return { x: 842, y: 332, width: 160, height: 60, docked: true };
+      return { x: 879, y: 332, width: 150, height: 60, docked: true };
     }
     return { x: 1137, y: 323, width: 175, height: 72, docked: false };
   }
@@ -9172,6 +9371,11 @@
       return null;
     }
 
+    function placementFromHit(hit) {
+      if (!hit || hit.type !== "formation-slot" || hit.data.side !== "player") return null;
+      return normalizeFormationPlacement(hit.data);
+    }
+
     function cardFromHit(hit, state) {
       if (!hit || !state) return null;
       if (hit.type === "hand-card") {
@@ -9194,11 +9398,21 @@
 
     function applyInspectionCard(card, source) {
       if (!inspection || !card) return;
-      inspection.card = card;
+      let presentedCard = card;
+      const state = stateNow();
+      if (source && source.type === "board-card" && source.side === "ai" && state) {
+        const layout = formationBoardLayout(state.boards && state.boards.ai || []);
+        const placement = layout[source.index];
+        const frontPresent = layout.some((candidate) => candidate && candidate.row === "front");
+        if (placement && placement.row === "rear" && frontPresent) {
+          presentedCard = { ...card, formationProtected: true };
+        }
+      }
+      inspection.card = presentedCard;
       inspection.source = source || inspection.source;
-      const cardId = inspectionInstanceId(card) || String(getCardValue(card, "id", ""));
+      const cardId = inspectionInstanceId(presentedCard) || String(getCardValue(presentedCard, "id", ""));
       root.setAttribute("data-inspection-card-id", cardId);
-      canvas.setAttribute("aria-description", inspectionAnnouncement(card));
+      canvas.setAttribute("aria-description", inspectionAnnouncement(presentedCard));
     }
 
     function locateInspectionCard(state) {
@@ -9328,6 +9542,25 @@
       return Array.from(keywords).includes(keyword);
     }
 
+    function boardPlacement(state, side, index) {
+      const board = state && state.boards && state.boards[side] || [];
+      return formationBoardLayout(board)[index] || null;
+    }
+
+    function isRearProtectedAttackTarget(target, selectedItem, state) {
+      if (!target || target.zone !== "board" || target.side !== "ai") return false;
+      if (!selectedItem || selectedItem.kind !== "attacker") return false;
+      const targetPlacement = boardPlacement(state, "ai", target.index);
+      if (!targetPlacement || targetPlacement.row !== "rear") return false;
+      const enemyBoard = state.boards && state.boards.ai || [];
+      const layout = formationBoardLayout(enemyBoard);
+      if (!layout.some((placement) => placement && placement.row === "front")) return false;
+      const attacker = state.boards && state.boards.player
+        ? state.boards.player[selectedItem.index]
+        : null;
+      return !cardHasKeyword(attacker, "저격") && !cardHasKeyword(attacker, "돌파");
+    }
+
     function isTargetAllowed(target, selectedItem, state) {
       if (!target || !selectedItem || !state) return false;
       if (selectedItem.kind === "commander-power") {
@@ -9346,14 +9579,14 @@
         if (target.side !== "ai") return false;
         const guards = (state.boards && state.boards.ai || []).filter((minion) => minion.guard);
         if (guards.length > 0) {
-          const attacker = (state.boards && state.boards.player || [])[selectedItem.index];
-          if (target.zone === "hero" && cardHasKeyword(attacker, "저격")) return true;
           if (target.zone !== "board") return false;
           return Boolean((state.boards.ai[target.index] || {}).guard);
         }
+        if (isRearProtectedAttackTarget(target, selectedItem, state)) return false;
         return true;
       }
       if (selectedItem.kind !== "hand") return false;
+      if (!selectedItem.placement) return false;
       const card = (state.hands && state.hands.player || [])[selectedItem.index];
       const abilities = getCardValue(card, "abilities", []) || [];
       const targetKind = cardTargetKind(card);
@@ -9397,11 +9630,17 @@
       const guards = (state.boards && state.boards.ai || []).filter((minion) => minion.guard);
       if (guards.length === 0) return false;
       if (target.zone === "hero") {
-        const attacker = (state.boards && state.boards.player || [])[selectedItem.index];
-        return !cardHasKeyword(attacker, "저격");
+        return true;
       }
       if (target.zone !== "board") return false;
       return !Boolean((state.boards.ai[target.index] || {}).guard);
+    }
+
+    function isFormationBlockedAttackTarget(target, selectedItem, state) {
+      if (!target || !selectedItem || selectedItem.kind !== "attacker" || !state) return false;
+      const guards = (state.boards && state.boards.ai || []).filter((minion) => minion.guard);
+      if (guards.length > 0) return false;
+      return isRearProtectedAttackTarget(target, selectedItem, state);
     }
 
     function canSelectHand(card, state) {
@@ -9409,7 +9648,7 @@
       const mana = Number(state.heroes && state.heroes.player && state.heroes.player.mana || 0);
       const cost = Number(getCardValue(card, "currentCost", getCardValue(card, "cost", 0)));
       const board = state.boards && state.boards.player || [];
-      return mana >= cost && board.length < 5;
+      return mana >= cost && availableFormationPlacements(board).length > 0;
     }
 
     function canArmHandSelection(state) {
@@ -9488,7 +9727,10 @@
          * highlight stays red, but the user now receives the authoritative
          * blockedByGuard/action:invalid cue instead of a dead click.
          */
-        if (isGuardBlockedAttackTarget(target, selection, state)) {
+        if (
+          isGuardBlockedAttackTarget(target, selection, state)
+          || isFormationBlockedAttackTarget(target, selection, state)
+        ) {
           fireAction({ type: "ATTACK", attackerIndex: selection.index, target });
           cancelSelection();
           return true;
@@ -9502,16 +9744,56 @@
           target,
         });
       } else if (selection.kind === "hand") {
+        if (!selection.placement) return false;
         if (!canArmHandSelection(state)) {
           showToast(state.turn !== "player" ? "상대의 턴입니다." : "지금은 카드를 사용할 수 없습니다.", "invalid");
           cancelSelection();
           return true;
         }
-        fireAction({ type: "PLAY_CARD", handIndex: selection.index, target });
+        fireAction({
+          type: "PLAY_CARD",
+          handIndex: selection.index,
+          target,
+          placement: { ...selection.placement },
+        });
       } else if (selection.kind === "attacker") {
         fireAction({ type: "ATTACK", attackerIndex: selection.index, target });
       }
       cancelSelection();
+      return true;
+    }
+
+    function activatePlacement(hit, state) {
+      if (!selection || selection.kind !== "hand") return false;
+      const placement = placementFromHit(hit);
+      if (!placement) return false;
+      const available = availableFormationPlacements(
+        state && state.boards && state.boards.player || [],
+      );
+      if (!available.some((candidate) => (
+        candidate.row === placement.row && candidate.slot === placement.slot
+      ))) return false;
+      const card = state.hands && state.hands.player
+        ? state.hands.player[selection.index]
+        : null;
+      if (!card) return false;
+      if (cardTargetKind(card) === "none") {
+        fireAction({
+          type: "PLAY_CARD",
+          handIndex: selection.index,
+          placement: { ...placement },
+        });
+        cancelSelection();
+      } else {
+        selection = { ...selection, placement: { ...placement } };
+        showToast(
+          `${placement.row === "front" ? "전열" : "후열"} ${placement.slot + 1}번 배치 · 이제 빛나는 대상을 선택하세요.`,
+          "normal",
+          "selection-prompt",
+        );
+        liveRegion.textContent = "배치를 정했습니다. 이제 능력을 적용할 대상을 선택하세요.";
+        invalidateBoardFrame();
+      }
       return true;
     }
 
@@ -9540,6 +9822,7 @@
         }
       }
       if (hit.type === "hand-card" || hit.type === "board-card") openInspection(hit, state);
+      if (selection && activatePlacement(hit, state)) return;
       if (selection && activateTarget(hit, state)) return;
 
       if (hit.type === "end-turn") {
@@ -9610,18 +9893,17 @@
             cancelSelection();
             return;
           }
-          if (cardTargetKind(card) === "none") {
-            fireAction({ type: "PLAY_CARD", handIndex: hit.data.index });
-            cancelSelection();
-          } else {
-            showToast("빛나는 대상에 카드를 사용하세요.", "normal", "selection-prompt");
-          }
+          showToast(
+            selection.placement
+              ? "빛나는 대상에 카드를 사용하세요."
+              : "빛나는 전열·후열 빈칸을 선택하세요.",
+            "normal",
+            "selection-prompt",
+          );
         } else if (playable) {
           selection = { kind: "hand", index: hit.data.index };
           showToast(
-            cardTargetKind(card) !== "none"
-              ? "사용할 대상을 선택"
-              : "전장에 놓거나 다시 눌러 사용",
+            "빛나는 전열·후열 빈칸을 선택하세요.",
             "normal",
             "selection-prompt",
           );
@@ -9644,13 +9926,6 @@
         }
         return;
       }
-      if (hit.type === "play-zone" && selection && selection.kind === "hand") {
-        const card = (state.hands && state.hands.player || [])[selection.index];
-        if (cardTargetKind(card) === "none") {
-          fireAction({ type: "PLAY_CARD", handIndex: selection.index });
-          cancelSelection();
-        }
-      }
     }
 
     function onPointerDown(event) {
@@ -9671,7 +9946,16 @@
         drag = {
           active: false,
           source: hit.type === "hand-card"
-            ? { kind: "hand", index: hit.data.index }
+            ? {
+              kind: "hand",
+              index: hit.data.index,
+              ...(selection
+                && selection.kind === "hand"
+                && selection.index === hit.data.index
+                && selection.placement
+                ? { placement: { ...selection.placement } }
+                : {}),
+            }
             : { kind: "attacker", index: hit.data.index },
           x: pointer.x,
           y: pointer.y,
@@ -9713,7 +9997,7 @@
         ? null
         : pointerHover;
       hoverInputSource = hoverHit ? "pointer" : "none";
-      canvas.style.cursor = hoverHit && ["hand-card", "board-card", "hero", "commander-power", "end-turn", "mute", "concede", "restart", "inspection-close"].includes(hoverHit.type)
+      canvas.style.cursor = hoverHit && ["hand-card", "board-card", "formation-slot", "hero", "commander-power", "end-turn", "mute", "concede", "restart", "inspection-close"].includes(hoverHit.type)
         ? "pointer"
         : "default";
       event.preventDefault();
@@ -9726,16 +10010,18 @@
       const state = stateNow();
       const releaseHit = hitAt(pointer);
       if (drag && drag.active) {
-        if (activateTarget(releaseHit, state)) {
+        if (activatePlacement(releaseHit, state)) {
+          // placement selected or targetless card played
+        } else if (activateTarget(releaseHit, state)) {
           // handled
         } else if (drag.source.kind === "hand") {
           const card = (state.hands && state.hands.player || [])[drag.source.index];
-          if (cardTargetKind(card) === "none" && pointer.y > 332 && pointer.y < 548 && pointer.x > 240 && pointer.x < 1120) {
-            fireAction({ type: "PLAY_CARD", handIndex: drag.source.index });
-            cancelSelection();
-          } else {
-            showToast(cardTargetKind(card) === "none" ? "카드를 전장 위에 놓으세요." : "유효한 대상을 선택하세요.", "invalid");
-          }
+          showToast(
+            selection && selection.placement && cardTargetKind(card) !== "none"
+              ? "유효한 대상을 선택하세요."
+              : "빛나는 빈칸에 카드를 놓으세요.",
+            "invalid",
+          );
         } else {
           showToast("공격 가능한 대상을 선택하세요.", "invalid");
         }
@@ -9757,6 +10043,7 @@
       }
       return hits.filter((hit) => {
         if (["end-turn", "mute", "concede", "restart", "hand-card", "commander-power", "inspection-close"].includes(hit.type)) return true;
+        if (hit.type === "formation-slot") return Boolean(selection && selection.kind === "hand");
         if (hit.type === "board-card") return true;
         if (selection && targetFromHit(hit)) return isTargetAllowed(targetFromHit(hit), selection, stateNow());
         return false;
@@ -9781,6 +10068,12 @@
               : "이번 턴 사용 완료";
         return `${commander.name} 지휘관 능력 ${commander.powerName}, 비용 ${commander.powerCost}, ${commander.powerText}, ${statusText}`;
       }
+      if (hit.type === "formation-slot") {
+        const placement = placementFromHit(hit);
+        return placement
+          ? `${placement.row === "front" ? "전열" : "후열"} ${placement.slot + 1}번 빈칸, 카드 배치`
+          : "진형 빈칸";
+      }
       if (hit.type === "hero") {
         const side = hit.data.side;
         const commander = commanderPresentationFor(state, side);
@@ -9792,7 +10085,11 @@
       }
       if (hit.type === "board-card") {
         const minion = (state.boards && state.boards[hit.data.side] || [])[hit.data.index];
-        return `${hit.data.side === "player" ? "아군" : "적"} ${getCardValue(minion, "name", "장수")}`;
+        const rowLabel = hit.data.row === "rear" ? "후열" : "전열";
+        const protection = hit.data.protectedRear
+          ? ", 전열이 보호 중이라 저격 또는 돌파 외에는 공격할 수 없음"
+          : "";
+        return `${hit.data.side === "player" ? "아군" : "적"} ${rowLabel} ${getCardValue(minion, "name", "장수")}${protection}`;
       }
       return "";
     }
@@ -10115,7 +10412,7 @@
       ctx.lineWidth = Math.max(1, 1.4 * scale);
       ctx.stroke();
 
-      const artY = y + 26 * scale;
+      const artY = configCard.compact ? y + 6 * scale : y + 26 * scale;
       const artHeight = height * (configCard.compact ? 0.58 : configCard.preview ? 0.52 : 0.4);
       const portraitBucket = configCard.compact
         ? "BOARD"
@@ -10175,19 +10472,21 @@
         ctx.restore();
       }
 
-      const nameY = artY + artHeight + 12 * scale;
-      const namePlate = ctx.createLinearGradient(x, nameY - 12 * scale, x + width, nameY + 10 * scale);
+      const nameY = artY + artHeight + (configCard.compact ? 7 : 12) * scale;
+      const namePlateTop = nameY - (configCard.compact ? 8 : 11) * scale;
+      const namePlateHeight = (configCard.compact ? 16 : 23) * scale;
+      const namePlate = ctx.createLinearGradient(x, namePlateTop, x + width, namePlateTop + namePlateHeight);
       namePlate.addColorStop(0, "#3a2416");
       namePlate.addColorStop(0.5, style.primary);
       namePlate.addColorStop(1, "#2b1a12");
       ctx.fillStyle = namePlate;
-      roundedRect(ctx, x + 9 * scale, nameY - 11 * scale, width - 18 * scale, 23 * scale, 6 * scale);
+      roundedRect(ctx, x + 9 * scale, namePlateTop, width - 18 * scale, namePlateHeight, 6 * scale);
       ctx.fill();
       ctx.strokeStyle = style.secondary;
       ctx.lineWidth = Math.max(1, 1.2 * scale);
       ctx.stroke();
       drawCenteredText(ctx, getCardValue(card, "name", "이름 없는 장수"), x + width / 2, nameY + 0.5 * scale, {
-        font: `900 ${Math.max(10, Math.round(13 * scale))}px ${SYSTEM_FONT}`,
+        font: `900 ${Math.max(configCard.compact ? 9 : 10, Math.round((configCard.compact ? 10.5 : 13) * scale))}px ${SYSTEM_FONT}`,
         color: "#fff4ce",
         stroke: "#21120b",
         strokeWidth: Math.max(1.5, 2 * scale),
@@ -10300,29 +10599,156 @@
       ctx.restore();
     }
 
+    function drawFormationField(side, board, now) {
+      const layout = formationBoardLayout(board);
+      const occupied = new Set(
+        layout.filter(Boolean).map((placement) => `${placement.row}:${placement.slot}`),
+      );
+      const placing = Boolean(side === "player" && selection && selection.kind === "hand");
+      const selectedPlacement = placing && selection.placement;
+      const rows = side === "ai" ? ["rear", "front"] : ["front", "rear"];
+      rows.forEach((row) => {
+        const first = formationSlotGeometry(side, row, 0);
+        const last = formationSlotGeometry(side, row, FORMATION_SLOT_COUNT - 1);
+        const laneX = first.x - 15;
+        const laneY = first.y - 3;
+        const laneWidth = last.x + last.width - first.x + 30;
+        const laneHeight = first.height + 6;
+        const isFront = row === "front";
+        ctx.save();
+        roundedRect(ctx, laneX, laneY, laneWidth, laneHeight, 18);
+        const laneFill = ctx.createLinearGradient(laneX, laneY, laneX, laneY + laneHeight);
+        laneFill.addColorStop(0, isFront ? "rgba(127,65,37,.23)" : "rgba(35,82,79,.2)");
+        laneFill.addColorStop(1, isFront ? "rgba(50,30,21,.18)" : "rgba(17,40,43,.16)");
+        ctx.fillStyle = laneFill;
+        ctx.fill();
+        ctx.strokeStyle = isFront ? "rgba(234,169,90,.34)" : "rgba(122,206,190,.3)";
+        ctx.lineWidth = 1.2;
+        ctx.stroke();
+        ctx.globalAlpha = 0.76;
+        drawCenteredText(ctx, isFront ? "前  전열" : "後  후열", laneX - 42, laneY + laneHeight / 2, {
+          font: `900 11px ${SYSTEM_FONT}`,
+          color: isFront ? "#f1bd80" : "#9ed8ca",
+          stroke: "rgba(13,15,13,.9)",
+          strokeWidth: 2,
+        });
+        ctx.restore();
+
+        for (let slotIndex = 0; slotIndex < FORMATION_SLOT_COUNT; slotIndex += 1) {
+          const geometry = formationSlotGeometry(side, row, slotIndex);
+          const key = `${row}:${slotIndex}`;
+          const empty = !occupied.has(key);
+          const chosen = Boolean(
+            selectedPlacement
+            && selectedPlacement.row === row
+            && selectedPlacement.slot === slotIndex,
+          );
+          ctx.save();
+          roundedRect(ctx, geometry.x, geometry.y, geometry.width, geometry.height, 11);
+          ctx.fillStyle = chosen
+            ? "rgba(243,198,94,.24)"
+            : empty
+              ? isFront ? "rgba(129,72,40,.12)" : "rgba(53,111,103,.11)"
+              : "rgba(12,16,15,.09)";
+          ctx.fill();
+          ctx.setLineDash(empty ? [5, 6] : []);
+          ctx.strokeStyle = chosen
+            ? "#ffe29a"
+            : placing && empty
+              ? isFront ? "#efb369" : "#82d8c4"
+              : isFront ? "rgba(226,157,80,.25)" : "rgba(112,189,173,.22)";
+          ctx.shadowColor = chosen ? "#ffd56d" : placing && empty ? ctx.strokeStyle : "transparent";
+          ctx.shadowBlur = chosen ? 18 : placing && empty ? 9 + Math.sin(now * 0.006) * 2 : 0;
+          ctx.lineWidth = chosen ? 3 : placing && empty ? 2 : 1;
+          ctx.stroke();
+          ctx.setLineDash([]);
+          if (empty) {
+            drawCenteredText(ctx, chosen ? "배치 확정" : `${slotIndex + 1}`, geometry.x + geometry.width / 2, geometry.y + geometry.height / 2, {
+              font: `900 ${chosen ? 11 : 13}px ${UI_FONT}`,
+              color: chosen ? "#ffeab0" : placing ? "#e7d5a5" : "rgba(229,216,177,.38)",
+              stroke: "rgba(20,15,12,.85)",
+              strokeWidth: 2,
+            });
+          }
+          ctx.restore();
+          if (placing && empty) {
+            addHit("formation-slot", geometry.x, geometry.y, geometry.width, geometry.height, {
+              side,
+              row,
+              slot: slotIndex,
+            });
+          }
+        }
+      });
+    }
+
+    function drawBoardStatusMarkers(minion, x, y, width, protectedRear) {
+      const markers = [];
+      const burning = Math.max(0, Number(getCardValue(minion, "burning", 0)) || 0);
+      const penalty = Math.max(0, Number(getCardValue(minion, "attackPenalty", 0)) || 0);
+      const counter = Math.max(0, Number(getCardValue(minion, "storedCounter", 0)) || 0);
+      if (burning) markers.push([`화${burning}`, "#9e3324", "#ffd29a"]);
+      if (penalty) markers.push([`공-${penalty}`, "#3e5575", "#d9ebff"]);
+      if (counter) markers.push([`반${counter}`, "#594078", "#eadcff"]);
+      if (getCardValue(minion, "attackLockPending", false) || getCardValue(minion, "attackLockedThisTurn", false)) {
+        markers.push(["봉쇄", "#55544d", "#f0e5c4"]);
+      }
+      if (getCardValue(minion, "emptyFort", false)) markers.push(["공성", "#315b72", "#dbf1ff"]);
+      if (getCardValue(minion, "secondAttackPenalty", false)) markers.push(["반동", "#7d2929", "#ffd5c2"]);
+      if (protectedRear) {
+        const protectionWidth = width - 16;
+        roundedRect(ctx, x + 8, y + 4, protectionWidth, 16, 8);
+        ctx.fillStyle = "#263d3d";
+        ctx.fill();
+        ctx.strokeStyle = "rgba(220,255,245,.78)";
+        ctx.lineWidth = 1;
+        ctx.stroke();
+        drawCenteredText(ctx, "🔒 전열 보호", x + width / 2, y + 12.5, {
+          font: `900 8.5px ${UI_FONT}`,
+          color: "#c9f4e8",
+          stroke: "rgba(18,12,10,.9)",
+          strokeWidth: 1.5,
+        });
+      }
+      const columns = 3;
+      const gap = 3;
+      const badgeWidth = (width - 12 - gap * (columns - 1)) / columns;
+      markers.forEach((marker, index) => {
+        const column = index % columns;
+        const row = Math.floor(index / columns);
+        const badgeX = x + 6 + column * (badgeWidth + gap);
+        const badgeY = y + (protectedRear ? 23 : 4) + row * 17;
+        roundedRect(ctx, badgeX, badgeY, badgeWidth, 16, 8);
+        ctx.fillStyle = marker[1];
+        ctx.fill();
+        ctx.strokeStyle = "rgba(255,239,190,.78)";
+        ctx.lineWidth = 1;
+        ctx.stroke();
+        drawCenteredText(ctx, marker[0], badgeX + badgeWidth / 2, badgeY + 8.5, {
+          font: `900 8.5px ${UI_FONT}`,
+          color: marker[2],
+          stroke: "rgba(18,12,10,.9)",
+          strokeWidth: 1.5,
+        });
+      });
+    }
+
     function drawBoardSlots(side, board, now, interactionBoard) {
-      const count = board.length;
-      const width = 124;
-      const height = 148;
-      const targetY = side === "ai" ? 178 : 397;
+      const width = FORMATION_CARD_WIDTH;
+      const height = FORMATION_CARD_HEIGHT;
       const state = stateNow();
       const actualBoard = Array.isArray(interactionBoard) ? interactionBoard : board;
-
-      if (count === 0) {
-        ctx.save();
-        ctx.globalAlpha = 0.13;
-        ctx.strokeStyle = "#ddcd91";
-        ctx.setLineDash([5, 8]);
-        ctx.lineWidth = 1.5;
-        roundedRect(ctx, LOGICAL_WIDTH / 2 - 62, targetY, 124, height, 12);
-        ctx.stroke();
-        ctx.restore();
-      }
+      const visualLayout = formationBoardLayout(board);
+      const actualLayout = formationBoardLayout(actualBoard);
+      const enemyFrontPresent = side === "ai"
+        && actualLayout.some((placement) => placement && placement.row === "front");
 
       board.forEach((minion, index) => {
         const key = `${side}:${minion.instanceId || getCardValue(minion, "id", index)}`;
-        const slot = boardSlotGeometry(side, count, index);
+        const placement = visualLayout[index] || { row: "front", slot: index % FORMATION_SLOT_COUNT };
+        const slot = formationSlotGeometry(side, placement.row, placement.slot);
         const targetX = slot.x;
+        const targetY = slot.y;
         const current = positions.get(key) || {
           x: targetX,
           y: side === "ai" ? 105 : 580,
@@ -10342,6 +10768,12 @@
           )
         ));
         const actualMinion = actualIndex >= 0 ? actualBoard[actualIndex] : null;
+        const actualPlacement = actualIndex >= 0 ? actualLayout[actualIndex] : placement;
+        const protectedRear = Boolean(
+          enemyFrontPresent
+          && actualPlacement
+          && actualPlacement.row === "rear",
+        );
         const inspectedCard = isInspectionCard(minion);
         const isSelected = Boolean(selection && selection.kind === "attacker" && selection.index === actualIndex && side === "player") || inspectedCard;
         const target = actualIndex >= 0 ? { zone: "board", side, index: actualIndex } : null;
@@ -10377,8 +10809,16 @@
           disabled: side === "player" && !canAttack && state.turn === "player",
           glow: isTarget ? "#ff6a52" : undefined,
         });
+        drawBoardStatusMarkers(minion, x, y, width, protectedRear);
         ctx.restore();
-        if (actualIndex >= 0) addHit("board-card", x, y, width, height, { side, index: actualIndex, key });
+        if (actualIndex >= 0) addHit("board-card", x, y, width, height, {
+          side,
+          index: actualIndex,
+          key,
+          row: actualPlacement && actualPlacement.row,
+          slot: actualPlacement && actualPlacement.slot,
+          protectedRear,
+        });
       });
     }
 
@@ -10499,20 +10939,20 @@
         ctx.save();
         ctx.globalAlpha = alpha * 0.82;
         ctx.translate(0, progress * 5);
-        drawCardFrame(ghost.card, ghost.x, ghost.y, 124, 148, {
+        drawCardFrame(ghost.card, ghost.x, ghost.y, FORMATION_CARD_WIDTH, FORMATION_CARD_HEIGHT, {
           compact: true,
           disabled: true,
         });
         ctx.globalCompositeOperation = "multiply";
         ctx.fillStyle = `rgba(20,18,17,${0.12 + progress * 0.58})`;
-        roundedRect(ctx, ghost.x, ghost.y, 124, 148, 10);
+        roundedRect(ctx, ghost.x, ghost.y, FORMATION_CARD_WIDTH, FORMATION_CARD_HEIGHT, 10);
         ctx.fill();
         ctx.globalCompositeOperation = "source-over";
         ctx.strokeStyle = `rgba(220,181,114,${alpha * 0.48})`;
         ctx.lineWidth = 1.5;
         for (let ash = 0; ash < 5; ash += 1) {
           const ashX = ghost.x + 18 + ash * 22 + Math.sin(now * 0.008 + ash) * 3;
-          const ashY = ghost.y + 132 - progress * (22 + ash * 4);
+          const ashY = ghost.y + FORMATION_CARD_HEIGHT - 16 - progress * (22 + ash * 4);
           ctx.beginPath();
           ctx.moveTo(ashX - 3, ashY + 2);
           ctx.lineTo(ashX + 2, ashY - 3);
@@ -11271,14 +11711,18 @@
 
     function drawBoardLabels() {
       ctx.save();
-      ctx.globalAlpha = 0.24;
-      drawCenteredText(ctx, "敵  陣", 313, 338, {
-        font: `900 15px ${SYSTEM_FONT}`,
+      ctx.globalAlpha = 0.62;
+      drawCenteredText(ctx, "敵  陣 · 전열이 후열을 보호", 301, 340, {
+        font: `900 12px ${SYSTEM_FONT}`,
         color: "#e8b5a2",
+        stroke: "rgba(22,12,10,.8)",
+        strokeWidth: 2,
       });
-      drawCenteredText(ctx, "我  軍", 1048, 381, {
-        font: `900 15px ${SYSTEM_FONT}`,
+      drawCenteredText(ctx, "我  軍 · 빈칸을 골라 배치", 1062, 389, {
+        font: `900 12px ${SYSTEM_FONT}`,
         color: "#c2e2bc",
+        stroke: "rgba(10,20,15,.8)",
+        strokeWidth: 2,
       });
       ctx.restore();
     }
@@ -11317,16 +11761,29 @@
         const source = candidates.find((hit) => hit.data.index === selection.index);
         if (source) start = { x: source.x + source.width / 2, y: source.y };
       } else if (selection.kind === "hand") {
-        const source = hits.find((hit) => hit.type === "hand-card" && hit.data.index === selection.index);
-        if (source) start = { x: source.x + source.width / 2, y: source.y };
+        if (selection.placement) {
+          const slot = formationSlotGeometry(
+            "player",
+            selection.placement.row,
+            selection.placement.slot,
+          );
+          start = { x: slot.x + slot.width / 2, y: slot.y + slot.height / 2 };
+        } else {
+          const source = hits.find((hit) => hit.type === "hand-card" && hit.data.index === selection.index);
+          if (source) start = { x: source.x + source.width / 2, y: source.y };
+        }
       } else if (selection.kind === "commander-power") {
         const source = hits.find((hit) => hit.type === "commander-power");
         if (source) start = { x: source.x + source.width / 2, y: source.y };
       }
       if (!start || !state) return;
       const end = drag && drag.active ? { x: drag.x, y: drag.y } : pointer;
-      const hoveredTarget = targetFromHit(hitAt(end));
-      const allowed = isTargetAllowed(hoveredTarget, selection, state);
+      const hoveredHit = hitAt(end);
+      const hoveredTarget = targetFromHit(hoveredHit);
+      const hoveredPlacement = placementFromHit(hoveredHit);
+      const allowed = selection.kind === "hand" && !selection.placement
+        ? Boolean(hoveredPlacement)
+        : isTargetAllowed(hoveredTarget, selection, state);
       const color = allowed ? "#ffdd73" : "#ee644f";
       const bend = clamp(Math.abs(end.y - start.y) * 0.32, 40, 125);
       ctx.save();
@@ -11616,16 +12073,22 @@
       const layout = inspectorTextLayout(card, innerWidth, bodyHeight - 28);
       const keywordTones = {
         돌진: ["#8b3b24", "#ffe0ae"],
+        돌파: ["#8b3b24", "#ffe0ae"],
         수호: ["#315b72", "#dbf1ff"],
         방패: ["#5a4f83", "#eee7ff"],
         출전: ["#6e5522", "#fff0b8"],
         유언: ["#5d355f", "#f4d9ff"],
+        의형제: ["#2f6c4d", "#dcffe8"],
+        군략: ["#385071", "#e2edff"],
+        연화: ["#8b3b24", "#ffe4c5"],
+        약탈: ["#566335", "#efffbd"],
+        천하무쌍: ["#7f2528", "#ffd4cc"],
       };
       const drawRichAbilityLine = (line, lineX, lineY) => {
-        const segments = String(line).split(/(출전:|유언:|돌진|수호|방패|무작위)/g).filter(Boolean);
+        const segments = String(line).split(/(출전:|유언:|돌진|돌파|수호|방패|의형제|군략|연화|약탈|천하무쌍|무작위)/g).filter(Boolean);
         let segmentX = lineX;
         segments.forEach((segment) => {
-          const emphasized = /^(출전:|유언:|돌진|수호|방패)$/.test(segment);
+          const emphasized = /^(출전:|유언:|돌진|돌파|수호|방패|의형제|군략|연화|약탈|천하무쌍)$/.test(segment);
           const random = segment === "무작위";
           ctx.font = `${emphasized || random ? 900 : 700} ${layout.fontSize}px ${UI_FONT}`;
           ctx.fillStyle = random ? "#7b2f78" : emphasized ? "#7a2f20" : "#32261c";
@@ -11640,56 +12103,98 @@
         ctx.fillStyle = "#64451f";
         ctx.font = `900 14px ${SYSTEM_FONT}`;
         ctx.fillText("능력", innerX, cursorY);
-        cursorY += 25;
+        cursorY += 20;
         layout.abilityLines.forEach((line) => {
           drawRichAbilityLine(line, innerX, cursorY);
           cursorY += layout.lineHeight;
         });
-        cursorY += 10;
+        cursorY += 5;
       }
 
       if (layout.keywordRows.length) {
         ctx.fillStyle = "#64451f";
-        ctx.font = `900 14px ${SYSTEM_FONT}`;
+        ctx.font = `900 ${Math.max(11, layout.fontSize - 1)}px ${SYSTEM_FONT}`;
         ctx.fillText("발동 · 키워드", innerX, cursorY);
-        cursorY += 29;
+        cursorY += 20;
         layout.keywordRows.forEach((row) => {
+          if (row.summary) {
+            roundedRect(ctx, innerX, cursorY, innerWidth, row.height, 7);
+            ctx.fillStyle = "rgba(76,92,68,.1)";
+            ctx.fill();
+            ctx.strokeStyle = "rgba(76,92,68,.25)";
+            ctx.lineWidth = 1;
+            ctx.stroke();
+            ctx.fillStyle = "#3a3025";
+            ctx.font = `700 ${layout.fontSize}px ${UI_FONT}`;
+            row.definitionLines.forEach((line, lineIndex) => {
+              ctx.fillText(line, innerX + 6, cursorY + 3 + lineIndex * Math.max(15, layout.lineHeight - 1));
+            });
+            cursorY += row.height + 3;
+            return;
+          }
           const tone = keywordTones[row.name] || ["#3c6759", "#e2f3e8"];
           const rowTop = cursorY;
-          roundedRect(ctx, innerX, rowTop + 1, row.chipWidth, 26, 13);
+          const chipHeight = Math.max(22, layout.fontSize + 9);
+          roundedRect(ctx, innerX, rowTop + 1, row.chipWidth, chipHeight, chipHeight / 2);
           ctx.fillStyle = tone[0];
           ctx.fill();
           ctx.strokeStyle = colorWithAlpha(style.secondary, 0.85);
           ctx.lineWidth = 1.2;
           ctx.stroke();
-          drawCenteredText(ctx, row.label || row.name, innerX + row.chipWidth / 2, rowTop + 14, {
-            font: `900 15px ${UI_FONT}`,
+          drawCenteredText(ctx, row.label || row.name, innerX + row.chipWidth / 2, rowTop + chipHeight / 2 + 1, {
+            font: `900 ${Math.max(11, layout.fontSize - 1)}px ${UI_FONT}`,
             color: tone[1],
           });
           ctx.fillStyle = "#3a3025";
-          ctx.font = `650 16px ${UI_FONT}`;
+          ctx.font = `650 ${layout.fontSize}px ${UI_FONT}`;
           row.definitionLines.forEach((line, lineIndex) => {
-            ctx.fillText(line, innerX + row.chipWidth + 11, rowTop + 2 + lineIndex * 21);
+            ctx.fillText(line, innerX + row.chipWidth + 11, rowTop + 2 + lineIndex * Math.max(16, layout.lineHeight - 1));
           });
-          cursorY += row.height + 4;
+          cursorY += row.height + 3;
         });
       }
 
-      ctx.strokeStyle = "rgba(90,60,30,.28)";
-      ctx.beginPath();
-      ctx.moveTo(innerX, cursorY + 4);
-      ctx.lineTo(innerX + innerWidth, cursorY + 4);
-      ctx.stroke();
-      cursorY += 17;
-      ctx.fillStyle = "#80613b";
-      ctx.font = `900 13px ${SYSTEM_FONT}`;
-      ctx.fillText("풍미", innerX, cursorY);
-      cursorY += 23;
-      ctx.fillStyle = "#735632";
-      ctx.font = `italic 600 16px ${SYSTEM_FONT}`;
-      layout.flavorLines.forEach((line, index) => {
-        ctx.fillText(`${index === 0 ? "“" : ""}${line}${index === layout.flavorLines.length - 1 ? "”" : ""}`, innerX, cursorY + index * 22);
-      });
+      if (layout.strategyRows.length) {
+        ctx.fillStyle = "#64451f";
+        ctx.font = `900 ${Math.max(11, layout.fontSize - 1)}px ${SYSTEM_FONT}`;
+        ctx.fillText("배치 · 연계 · 상태", innerX, cursorY);
+        cursorY += 20;
+        layout.strategyRows.forEach((row) => {
+          const statusRow = row.section === "status";
+          const badgeWidth = clamp(24 + ctx.measureText(row.label).width, 66, 96);
+          roundedRect(ctx, innerX, cursorY, badgeWidth, 16, 8);
+          ctx.fillStyle = statusRow ? "#7b3d32" : "#4b654c";
+          ctx.fill();
+          drawCenteredText(ctx, row.label, innerX + badgeWidth / 2, cursorY + 8.5, {
+            font: `900 ${Math.max(9, layout.fontSize - 3)}px ${UI_FONT}`,
+            color: statusRow ? "#ffe1cf" : "#e5f1d4",
+          });
+          ctx.fillStyle = "#413428";
+          ctx.font = `750 ${Math.max(11, layout.fontSize - 1)}px ${UI_FONT}`;
+          row.lines.forEach((line, lineIndex) => {
+            ctx.fillText(line, innerX + badgeWidth + 8, cursorY + lineIndex * Math.max(15, layout.lineHeight - 2));
+          });
+          cursorY += row.height + 3;
+        });
+      }
+
+      if (layout.flavorLines.length) {
+        ctx.strokeStyle = "rgba(90,60,30,.28)";
+        ctx.beginPath();
+        ctx.moveTo(innerX, cursorY + 4);
+        ctx.lineTo(innerX + innerWidth, cursorY + 4);
+        ctx.stroke();
+        cursorY += 10;
+        ctx.fillStyle = "#80613b";
+        ctx.font = `900 13px ${SYSTEM_FONT}`;
+        ctx.fillText("풍미", innerX, cursorY);
+        cursorY += 18;
+        ctx.fillStyle = "#735632";
+        ctx.font = `italic 600 ${Math.max(11, layout.fontSize - 1)}px ${SYSTEM_FONT}`;
+        layout.flavorLines.forEach((line, index) => {
+          ctx.fillText(`${index === 0 ? "“" : ""}${line}${index === layout.flavorLines.length - 1 ? "”" : ""}`, innerX, cursorY + index * 16);
+        });
+      }
       ctx.restore();
       ctx.restore();
     }
@@ -11828,7 +12333,16 @@
         drawTitle();
         drawOpponentHand((state.hands && state.hands.ai || []).length);
         drawBoardLabels();
-        addHit("play-zone", 245, 352, 880, 211, {});
+        drawFormationField(
+          "ai",
+          state.boards && state.boards.ai || [],
+          now,
+        );
+        drawFormationField(
+          "player",
+          state.boards && state.boards.player || [],
+          now,
+        );
         drawBoardSlots(
           "ai",
           visualState.boards && visualState.boards.ai || [],
@@ -11914,6 +12428,16 @@
         "commander:power": "지휘관 능력이 발동했습니다.",
         "commander:reflect": "인덕의 반사가 발동했습니다.",
         "commander:lock": "다음 공격이 봉쇄되었습니다.",
+        "formation:place": "선택한 진형 칸에 장수를 배치했습니다.",
+        "formation:block": "전열이 후열을 보호하고 있습니다.",
+        "faction:link": "진영 연계가 발동했습니다.",
+        "duel:start": "일기토가 시작되었습니다.",
+        "duel:hit": "일기토의 칼날이 맞부딪쳤습니다.",
+        "status:burn": "화상 피해가 발생했습니다.",
+        "status:counter": "인내의 반계가 발동했습니다.",
+        "status:intimidate": "장판의 호통이 적 전열을 위축시켰습니다.",
+        "status:empty-fort": "공성계가 공격을 흘려냈습니다.",
+        "status:raid": "약탈로 다음 공격을 봉쇄했습니다.",
         "game:end": "대전이 끝났습니다.",
         "action:invalid": "그 행동은 할 수 없습니다.",
       };
@@ -12052,7 +12576,9 @@
       if (!card) return;
       const key = `${side}:${instanceId}`;
       const existingPosition = positions.get(key);
-      const slot = boardSlotGeometry(side, board.length, index);
+      const placement = formationBoardLayout(board)[index]
+        || { row: "front", slot: index % FORMATION_SLOT_COUNT };
+      const slot = formationSlotGeometry(side, placement.row, placement.slot);
       const contactAt = timeline ? timeline.contactAt : now + DIRECT_EFFECT_CONTACT_MS;
       const deathAt = timeline
         ? timeline.startAt + MINION_DEATH_CUE_MS
@@ -12126,6 +12652,19 @@
         showToast(`유비의 반사 · 공격자에게 피해 1 · ${charges}회 남음`, "normal");
       } else if (type === "commander:lock") {
         liveRegion.textContent = "맹획의 족쇄 명령으로 적 장수의 다음 공격을 봉쇄했습니다.";
+      } else if ([
+        "formation:place",
+        "formation:block",
+        "faction:link",
+        "duel:start",
+        "duel:hit",
+        "status:burn",
+        "status:counter",
+        "status:intimidate",
+        "status:empty-fort",
+        "status:raid",
+      ].includes(type)) {
+        showToast(localizedEventMessage, type === "formation:block" ? "invalid" : "normal");
       } else if (type === "card:play") {
         presentationBusyUntil = Math.max(presentationBusyUntil, now + CARD_PLAY_PRESENTATION_MS);
         showToast(localizedEventMessage, "normal");
@@ -12334,6 +12873,8 @@
       resolveCardKeywordDetails,
       normalizeInspectorAbilityText,
       inspectorContentModel,
+      inspectorStrategyRows,
+      inspectorRuntimeStatusRows,
       inspectorAnnouncementText,
       calculateInspectorTextLayout,
       capturePresentationState,
@@ -12351,6 +12892,10 @@
       boardFrameDelay,
       shieldVisualState,
       boardSlotGeometry,
+      normalizeFormationPlacement,
+      formationBoardLayout,
+      availableFormationPlacements,
+      formationSlotGeometry,
       playerHandLayoutGeometry,
       playerManaGeometry,
       commanderIdentityRibbonGeometry,

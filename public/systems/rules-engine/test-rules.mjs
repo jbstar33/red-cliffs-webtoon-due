@@ -42,7 +42,7 @@ const definitions = [
     cost: 1,
     attack: 3,
     health: 4,
-    keywords: ["돌진", "방패"],
+    keywords: ["돌진", "돌파", "방패"],
     target: "none",
     abilities: [],
   },
@@ -193,7 +193,7 @@ const definitions = [
     keywords: [],
     target: "enemyMinion",
     abilities: [
-      { trigger: "onPlay", op: "summon_token", tokenId: "militia", count: 4 },
+      { trigger: "onPlay", op: "summon_token", tokenId: "militia", count: 5 },
       { trigger: "onPlay", op: "steal_enemy_minion", target: "enemyMinion" },
     ],
   },
@@ -225,6 +225,152 @@ const definitions = [
         target: "enemyMinion",
       },
     ],
+  },
+  {
+    id: "test-brotherhood",
+    name: "의형제 시험",
+    faction: "촉",
+    cost: 0,
+    attack: 1,
+    health: 2,
+    keywords: ["의형제"],
+    target: "none",
+    abilities: [{ trigger: "onPlay", op: "faction_link", linkKind: "brotherhood" }],
+  },
+  {
+    id: "test-strategy-link",
+    name: "군략 시험",
+    faction: "위",
+    cost: 2,
+    attack: 1,
+    health: 2,
+    keywords: ["군략"],
+    target: "none",
+    abilities: [{ trigger: "onPlay", op: "faction_link", linkKind: "strategy" }],
+  },
+  {
+    id: "test-kindle-link",
+    name: "연화 시험",
+    faction: "오",
+    cost: 0,
+    attack: 1,
+    health: 2,
+    keywords: ["연화"],
+    target: "none",
+    abilities: [{ trigger: "onPlay", op: "faction_link", linkKind: "kindle" }],
+  },
+  {
+    id: "test-raid-link",
+    name: "약탈 시험",
+    faction: "남만",
+    cost: 0,
+    attack: 1,
+    health: 2,
+    keywords: ["약탈"],
+    target: "none",
+    abilities: [{ trigger: "onPlay", op: "faction_link", linkKind: "raid" }],
+  },
+  {
+    id: "test-duelist",
+    name: "관우 시험",
+    faction: "촉",
+    cost: 0,
+    attack: 4,
+    health: 5,
+    keywords: ["돌진", "돌파", "의형제"],
+    target: "enemyMinion",
+    abilities: [{ trigger: "onPlay", op: "duel_target", target: "enemyMinion" }],
+  },
+  {
+    id: "test-intimidator",
+    name: "장비 시험",
+    faction: "촉",
+    cost: 0,
+    attack: 2,
+    health: 5,
+    keywords: ["수호", "의형제"],
+    target: "none",
+    abilities: [
+      {
+        trigger: "onPlay",
+        op: "weaken_enemy_front",
+        amount: 1,
+        duration: "nextEnemyTurnEnd",
+      },
+    ],
+  },
+  {
+    id: "test-empty-fort",
+    name: "제갈량 시험",
+    faction: "촉",
+    cost: 0,
+    attack: 1,
+    health: 3,
+    keywords: ["의형제"],
+    target: "none",
+    abilities: [
+      {
+        trigger: "onPlay",
+        op: "empty_fort",
+        requiredRow: "rear",
+        requiresSolo: true,
+        charges: 1,
+      },
+    ],
+  },
+  {
+    id: "test-patience",
+    name: "사마의 시험",
+    faction: "위",
+    cost: 0,
+    attack: 1,
+    health: 5,
+    keywords: ["군략"],
+    target: "none",
+    abilities: [{ trigger: "onPlay", op: "patience_counter", maxStored: 2 }],
+  },
+  {
+    id: "test-burning-all",
+    name: "주유 시험",
+    faction: "오",
+    cost: 0,
+    attack: 1,
+    health: 3,
+    keywords: ["연화"],
+    target: "none",
+    abilities: [{ trigger: "onPlay", op: "apply_burning_all", amount: 1 }],
+  },
+  {
+    id: "test-rear-raider",
+    name: "감녕 시험",
+    faction: "오",
+    cost: 0,
+    attack: 2,
+    health: 3,
+    keywords: ["돌진", "돌파", "연화"],
+    target: "none",
+    abilities: [
+      {
+        trigger: "onPlay",
+        op: "buff_self",
+        attack: 1,
+        health: 0,
+        requiredRow: "rear",
+        duration: "thisTurn",
+      },
+    ],
+  },
+  {
+    id: "test-lubu",
+    name: "여포 시험",
+    faction: "군웅",
+    cost: 0,
+    attack: 3,
+    health: 7,
+    keywords: ["돌진", "돌파", "천하무쌍", "약탈"],
+    combat: { attacksPerTurn: 2, secondAttackSelfDamage: 2 },
+    target: "none",
+    abilities: [],
   },
 ];
 
@@ -527,7 +673,7 @@ function testTargetingGuardShieldAndCombat() {
   assert.deepEqual(heroDamage.detail.target, { zone: "hero", side: "ai" });
 }
 
-function testSnipeBypassesGuardForCommanderOnly() {
+function testGuardTakesPriorityOverSnipe() {
   const game = createGame({
     definitions,
     tokens,
@@ -544,18 +690,17 @@ function testSnipeBypassesGuardForCommanderOnly() {
     .getLegalActions()
     .filter((action) => action.type === "attack" && action.attackerIndex === 0);
   assert.ok(
-    attacks.some((action) => action.target.zone === "hero" && action.target.side === "ai"),
-    "저격 장수는 수호를 무시하고 적 지휘관을 지정할 수 있어야 한다",
+    attacks.every((action) => action.target.zone === "board"),
+    "수호는 저격과 돌파보다 우선해 지휘관과 비수호 장수를 보호해야 한다",
   );
   assert.ok(
     attacks.some((action) => action.target.zone === "board" && action.target.index === 0),
     "저격 장수도 적 수호 장수를 정상 공격할 수 있어야 한다",
   );
-  assert.equal(
-    game.attack("player", 0, { zone: "hero", side: "ai" }).ok,
-    true,
-  );
-  assert.equal(game.getState().heroes.ai.health, 28);
+  const rejected = game.attack("player", 0, { zone: "hero", side: "ai" });
+  assert.equal(rejected.ok, false);
+  assert.equal(rejected.error, "invalid_attack_target");
+  assert.equal(game.getState().heroes.ai.health, 30);
 }
 
 function testStealEnemyMinionAndDelayedAttack() {
@@ -1978,6 +2123,322 @@ function testFatigueEndsGame() {
   assert.ok(state.heroes.ai.fatigue > 0);
 }
 
+function testFormationPlacementProtectionAndCapacity() {
+  const events = [];
+  const game = createGame({
+    definitions,
+    tokens,
+    playerDeck: deckOf("strategist"),
+    aiDeck: deckOf("charger"),
+    seed: 701,
+    emit: (type, detail) => events.push({ type, detail }),
+  });
+  playFirst(
+    game,
+    "playCard",
+    (action) => action.placement?.row === "rear" && action.placement.slot === 0,
+  );
+  assert.deepEqual(game.getState().boards.player[0].row, "rear");
+  game.endTurn("player");
+  playFirst(
+    game,
+    "playCard",
+    (action) => action.placement?.row === "front" && action.placement.slot === 0,
+  );
+  game.endTurn("ai");
+  game.endTurn("player");
+  playFirst(
+    game,
+    "playCard",
+    (action) => action.placement?.row === "rear" && action.placement.slot === 0,
+  );
+  game.endTurn("ai");
+
+  const ordinaryTargets = game
+    .getLegalActions()
+    .filter((action) => action.type === "attack" && action.attackerIndex === 0)
+    .map((action) => action.target);
+  assert.ok(ordinaryTargets.some((target) => target.zone === "board" && target.index === 0));
+  assert.ok(!ordinaryTargets.some((target) => target.zone === "board" && target.index === 1));
+  const blocked = game.attack("player", 0, { zone: "board", side: "ai", index: 1 });
+  assert.equal(blocked.ok, false);
+  assert.equal(blocked.state.log.at(-2).type, "formation:block");
+  assert.equal(blocked.state.log.at(-2).data.reason, "front_protects_rear");
+
+  const breach = createGame({
+    definitions,
+    tokens,
+    playerDeck: deckOf("shield-charger"),
+    aiDeck: deckOf("charger"),
+    seed: 702,
+  });
+  playFirst(breach, "playCard");
+  breach.endTurn("player");
+  playFirst(breach, "playCard", (action) => action.placement?.row === "front");
+  breach.endTurn("ai");
+  breach.endTurn("player");
+  playFirst(breach, "playCard", (action) => action.placement?.row === "rear");
+  breach.endTurn("ai");
+  assert.ok(
+    breach
+      .getLegalActions()
+      .some(
+        (action) =>
+          action.type === "attack" &&
+          action.attackerIndex === 0 &&
+          action.target.zone === "board" &&
+          action.target.index === 1,
+      ),
+    "돌파는 전열 뒤의 후열을 직접 공격할 수 있어야 한다",
+  );
+
+  const capacity = createGame({
+    definitions,
+    tokens,
+    playerDeck: deckOf("engineer"),
+    aiDeck: deckOf("charger"),
+    seed: 703,
+  });
+  const firstEngineer = capacity.getLegalActions().find(
+    (action) =>
+      action.type === "playCard" &&
+      action.placement?.row === "rear" &&
+      action.placement.slot === 2,
+  );
+  assert.ok(firstEngineer);
+  capacity.applyAction(firstEngineer);
+  capacity.endTurn("player");
+  capacity.endTurn("ai");
+  playFirst(capacity, "playCard");
+  const fullBoard = capacity.getState().boards.player;
+  assert.equal(fullBoard.length, 6);
+  assert.equal(
+    new Set(fullBoard.map((minion) => `${minion.row}:${minion.slot}`)).size,
+    6,
+    "자동 배치는 6개 진형 칸을 중복 없이 채워야 한다",
+  );
+  assert.ok(!capacity.getLegalActions().some((action) => action.type === "playCard"));
+  assert.ok(events.some((event) => event.type === "formation:place"));
+}
+
+function testFourFactionLinks() {
+  const brotherEvents = [];
+  const brotherhood = createGame({
+    definitions,
+    tokens,
+    playerDeck: deckOf("test-brotherhood"),
+    aiDeck: deckOf("charger"),
+    seed: 710,
+    emit: (type, detail) => brotherEvents.push({ type, detail }),
+  });
+  playFirst(brotherhood, "playCard");
+  playFirst(brotherhood, "playCard");
+  assert.deepEqual(
+    brotherhood.getState().boards.player.map((minion) => minion.currentHealth),
+    [3, 3],
+  );
+  assert.equal(
+    brotherEvents.find((event) => event.type === "faction:link")?.detail.linkKind,
+    "brotherhood",
+  );
+
+  const strategyEvents = [];
+  const strategy = createGame({
+    definitions,
+    tokens,
+    playerDeck: deckOf("test-strategy-link"),
+    aiDeck: deckOf("charger"),
+    seed: 711,
+    emit: (type, detail) => strategyEvents.push({ type, detail }),
+  });
+  strategy.endTurn("player");
+  strategy.endTurn("ai");
+  playFirst(strategy, "playCard");
+  strategy.endTurn("player");
+  strategy.endTurn("ai");
+  playFirst(strategy, "playCard");
+  assert.equal(
+    strategyEvents.find((event) => event.type === "faction:link")?.detail.linkKind,
+    "strategy",
+  );
+  assert.ok(strategy.getState().hands.player.some((card) => card.currentCost === 1));
+
+  const kindleEvents = [];
+  const kindle = createGame({
+    definitions,
+    tokens,
+    playerDeck: deckOf("test-kindle-link"),
+    aiDeck: deckOf("charger"),
+    seed: 712,
+    emit: (type, detail) => kindleEvents.push({ type, detail }),
+  });
+  playFirst(kindle, "playCard");
+  kindle.endTurn("player");
+  playFirst(kindle, "playCard");
+  kindle.endTurn("ai");
+  playFirst(kindle, "playCard");
+  assert.equal(kindle.getState().boards.ai[0].burning, 1);
+  assert.equal(
+    kindleEvents.find((event) => event.type === "faction:link")?.detail.linkKind,
+    "kindle",
+  );
+
+  const raidEvents = [];
+  const raid = createGame({
+    definitions,
+    tokens,
+    playerDeck: deckOf("test-raid-link"),
+    aiDeck: deckOf("charger"),
+    seed: 713,
+    emit: (type, detail) => raidEvents.push({ type, detail }),
+  });
+  playFirst(raid, "playCard");
+  raid.endTurn("player");
+  playFirst(raid, "playCard");
+  raid.endTurn("ai");
+  playFirst(raid, "playCard");
+  assert.equal(raid.getState().boards.ai[0].attackLockPending, true);
+  assert.equal(raid.getState().boards.ai[0].attackLockKind, "raid");
+  assert.equal(
+    raidEvents.find((event) => event.type === "faction:link")?.detail.linkKind,
+    "raid",
+  );
+}
+
+function testSignatureGeneralAbilitiesAndStatuses() {
+  const duelEvents = [];
+  const duel = createGame({
+    definitions,
+    tokens,
+    playerDeck: deckOf("test-duelist"),
+    aiDeck: deckOf("charger"),
+    seed: 720,
+    emit: (type, detail) => duelEvents.push({ type, detail }),
+  });
+  duel.endTurn("player");
+  playFirst(duel, "playCard");
+  duel.endTurn("ai");
+  playFirst(duel, "playCard");
+  assert.equal(duel.getState().boards.ai.length, 0);
+  assert.equal(duel.getState().boards.player[0].currentHealth, 3);
+  assert.equal(duel.getState().boards.player[0].canAttack, true);
+  assert.ok(duelEvents.some((event) => event.type === "duel:start"));
+  assert.ok(duelEvents.some((event) => event.type === "duel:hit"));
+
+  const intimidate = createGame({
+    definitions,
+    tokens,
+    playerDeck: deckOf("test-intimidator"),
+    aiDeck: deckOf("charger"),
+    seed: 721,
+  });
+  intimidate.endTurn("player");
+  playFirst(intimidate, "playCard", (action) => action.placement?.row === "front");
+  intimidate.endTurn("ai");
+  playFirst(intimidate, "playCard");
+  assert.equal(intimidate.getState().boards.ai[0].currentAttack, 1);
+  intimidate.endTurn("player");
+  intimidate.endTurn("ai");
+  assert.equal(intimidate.getState().boards.ai[0].currentAttack, 2);
+
+  const emptyFortEvents = [];
+  const emptyFort = createGame({
+    definitions,
+    tokens,
+    playerDeck: deckOf("test-empty-fort"),
+    aiDeck: deckOf("charger"),
+    seed: 722,
+    emit: (type, detail) => emptyFortEvents.push({ type, detail }),
+  });
+  playFirst(emptyFort, "playCard", (action) => action.placement?.row === "rear");
+  assert.equal(emptyFort.getState().heroes.player.emptyFortCharges, 1);
+  emptyFort.endTurn("player");
+  playFirst(emptyFort, "playCard");
+  const faceAttack = emptyFort
+    .getLegalActions()
+    .find((action) => action.type === "attack" && action.target.zone === "hero");
+  assert.ok(faceAttack);
+  emptyFort.applyAction(faceAttack);
+  assert.equal(emptyFort.getState().heroes.player.health, 30);
+  assert.equal(emptyFort.getState().heroes.player.emptyFortCharges, 0);
+  assert.ok(
+    emptyFortEvents.some(
+      (event) => event.type === "status:empty-fort" && event.detail.preventedDamage === 2,
+    ),
+  );
+
+  const counterEvents = [];
+  const patience = createGame({
+    definitions,
+    tokens,
+    playerDeck: deckOf("test-patience"),
+    aiDeck: deckOf("charger"),
+    seed: 723,
+    emit: (type, detail) => counterEvents.push({ type, detail }),
+  });
+  playFirst(patience, "playCard", (action) => action.placement?.row === "front");
+  patience.endTurn("player");
+  playFirst(patience, "playCard");
+  const counterTarget = patience
+    .getLegalActions()
+    .find(
+      (action) =>
+        action.type === "attack" &&
+        action.target.zone === "board" &&
+        action.target.side === "player",
+    );
+  assert.ok(counterTarget);
+  patience.applyAction(counterTarget);
+  assert.equal(patience.getState().boards.player[0].storedCounter, 2);
+  patience.endTurn("ai");
+  assert.equal(patience.getState().boards.ai.length, 0);
+  assert.ok(counterEvents.some((event) => event.type === "status:counter" && event.detail.phase === "released"));
+
+  const burning = createGame({
+    definitions,
+    tokens,
+    playerDeck: deckOf("test-burning-all"),
+    aiDeck: deckOf("charger"),
+    seed: 724,
+  });
+  burning.endTurn("player");
+  playFirst(burning, "playCard");
+  burning.endTurn("ai");
+  playFirst(burning, "playCard");
+  assert.equal(burning.getState().boards.ai[0].burning, 1);
+  burning.endTurn("player");
+  burning.endTurn("ai");
+  assert.equal(burning.getState().boards.ai[0].currentHealth, 1);
+  assert.equal(burning.getState().boards.ai[0].burning, 0);
+
+  const raider = createGame({
+    definitions,
+    tokens,
+    playerDeck: deckOf("test-rear-raider"),
+    aiDeck: deckOf("charger"),
+    seed: 725,
+  });
+  playFirst(raider, "playCard", (action) => action.placement?.row === "rear");
+  assert.equal(raider.getState().boards.player[0].currentAttack, 3);
+  raider.endTurn("player");
+  assert.equal(raider.getState().boards.player[0].currentAttack, 2);
+
+  const lubu = createGame({
+    definitions,
+    tokens,
+    playerDeck: deckOf("test-lubu"),
+    aiDeck: deckOf("charger"),
+    seed: 726,
+  });
+  playFirst(lubu, "playCard");
+  playFirst(lubu, "attack", (action) => action.target.zone === "hero");
+  assert.equal(lubu.getState().boards.player[0].attacksLeft, 1);
+  playFirst(lubu, "attack", (action) => action.target.zone === "hero");
+  assert.equal(lubu.getState().boards.player[0].secondAttackPenalty, true);
+  lubu.endTurn("player");
+  assert.equal(lubu.getState().boards.player[0].currentHealth, 5);
+}
+
 function selectBattleAction(game) {
   const legal = game.getLegalActions();
   const lethal = legal.find((action) => {
@@ -2029,7 +2490,7 @@ testInitialStateAndSnapshotIsolation();
 testOpeningHandCostBalance();
 testTurnManaSummoningAndBoardLimit();
 testTargetingGuardShieldAndCombat();
-testSnipeBypassesGuardForCommanderOnly();
+testGuardTakesPriorityOverSnipe();
 testStealEnemyMinionAndDelayedAttack();
 testStealBoardCapacityAndMaxCostValidation();
 testStealMinimumCostValidation();
@@ -2049,6 +2510,9 @@ testSunQuanFloodAndMutualDestruction();
 testNomadAttackLockCloneAndExpiry();
 testCloneDeterminismAndIsolation();
 testFatigueEndsGame();
+testFormationPlacementProtectionAndCapacity();
+testFourFactionLinks();
+testSignatureGeneralAbilitiesAndStatuses();
 const battle = testCompleteTwentyCardBattle();
 
 console.log(

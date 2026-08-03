@@ -2,12 +2,24 @@
   "use strict";
 
   var KEYWORD_GLOSSARY = Object.freeze({
-    돌진: "이 하수인은 출전한 턴에도 공격할 수 있습니다.",
-    수호: "적은 수호 하수인이 하나라도 있으면 수호 하수인만 공격할 수 있습니다.",
-    방패: "이 하수인이 처음 받는 피해를 한 번 전부 막습니다.",
-    저격: "적 수호 하수인을 무시하고 적 영웅을 공격할 수 있습니다."
+    돌진: "출전 턴 공격 가능.",
+    수호: "적은 이 장수만 공격 가능.",
+    방패: "처음 받는 피해 1회 무효.",
+    저격: "전열 너머 후열 공격 가능.",
+    돌파: "전열 너머 후열 공격 가능.",
+    의형제: "촉 아군과 연계해 자신과 체력 최저 촉 아군 +0/+1.",
+    군략: "위 아군과 연계해 최고 비용 손패의 비용 -1.",
+    연화: "오 아군과 연계해 적 장수 하나에 화상 1.",
+    약탈: "남만·군웅 아군과 연계해 적 하나의 공격 1회 봉쇄.",
+    천하무쌍: "턴마다 2회 공격. 두 번째 공격 후 반동 피해 2."
   });
   var KEYWORDS = Object.keys(KEYWORD_GLOSSARY);
+  var LINK_NAMES = Object.freeze({
+    brotherhood: "의형제",
+    strategy: "군략",
+    kindle: "연화",
+    raid: "약탈"
+  });
   var TARGETS = ["none", "enemy", "friendly", "any", "enemyMinion"];
   var TRIGGERS = ["onPlay", "onDeath"];
   var OPS = [
@@ -27,8 +39,31 @@
     "ready_random_friendly",
     "steal_enemy_minion",
     "grant_all_allies_armor",
-    "steal_enemy_minion_max_cost"
+    "steal_enemy_minion_max_cost",
+    "duel_target",
+    "weaken_enemy_front",
+    "empty_fort",
+    "patience_counter",
+    "apply_burning_all",
+    "faction_link"
   ];
+  var LINK_KEYWORDS = Object.freeze({
+    brotherhood: "의형제",
+    strategy: "군략",
+    kindle: "연화",
+    raid: "약탈"
+  });
+  var FEATURED_GENERAL_IDS = Object.freeze([
+    "shu_guan_yu",
+    "shu_zhang_fei",
+    "shu_zhao_yun",
+    "shu_zhuge_liang",
+    "wei_sima_yi",
+    "wu_zhou_yu",
+    "wu_gan_ning",
+    "qun_lu_bu",
+    "qun_diao_chan"
+  ]);
 
   var TOKEN_SEEDS = [
     {
@@ -111,9 +146,12 @@
       rarity: "전설",
       role: "맹장",
       flavor: "청룡의 칼날이 지나간 자리에는 의기만 남는다.",
-      keywords: ["돌진"],
-      target: "none",
-      abilities: [],
+      keywords: ["돌파", "의형제"],
+      target: "enemyMinion",
+      abilities: [
+        { name: "일기토", trigger: "onPlay", op: "duel_target", target: "enemyMinion" },
+        { trigger: "onPlay", op: "faction_link", linkKind: "brotherhood" }
+      ],
       palette: { primary: "#A92D2D", secondary: "#D8B85A", glow: "#FF6D45" },
       portrait: {
         motif: "붉은 전포와 휘감기는 청룡",
@@ -132,9 +170,18 @@
       rarity: "영웅",
       role: "수문장",
       flavor: "장판교의 일갈에 군마조차 발을 멈췄다.",
-      keywords: ["수호"],
+      keywords: ["수호", "의형제"],
       target: "none",
-      abilities: [],
+      abilities: [
+        {
+          name: "장판의 호통",
+          trigger: "onPlay",
+          op: "weaken_enemy_front",
+          amount: 1,
+          duration: "nextEnemyTurnEnd"
+        },
+        { trigger: "onPlay", op: "faction_link", linkKind: "brotherhood" }
+      ],
       palette: { primary: "#382F45", secondary: "#C95440", glow: "#FF9A5A" },
       portrait: {
         motif: "장판교의 먼지와 검은 호랑이",
@@ -153,7 +200,7 @@
       rarity: "전설",
       role: "선봉",
       flavor: "백마 한 필로 포위를 가르고 주군의 뜻을 지켰다.",
-      keywords: ["돌진", "방패"],
+      keywords: ["돌진", "돌파", "방패"],
       target: "none",
       abilities: [],
       palette: { primary: "#D8E5E9", secondary: "#4A7F99", glow: "#B7F4FF" },
@@ -174,11 +221,18 @@
       rarity: "전설",
       role: "책사",
       flavor: "동풍은 우연이 아니라 준비된 계책의 마지막 한 수다.",
-      keywords: [],
+      keywords: ["의형제"],
       target: "none",
       abilities: [
-        { trigger: "onPlay", op: "draw", amount: 2 },
-        { trigger: "onPlay", op: "reduce_random_hand_cost", amount: 1, count: 1 }
+        {
+          name: "공성계",
+          trigger: "onPlay",
+          op: "empty_fort",
+          requiredRow: "rear",
+          requiresSolo: true,
+          charges: 1
+        },
+        { trigger: "onPlay", op: "faction_link", linkKind: "brotherhood" }
       ],
       palette: { primary: "#E9E1C3", secondary: "#557A69", glow: "#B8FFD8" },
       portrait: {
@@ -267,11 +321,16 @@
       rarity: "전설",
       role: "책사",
       flavor: "기다림도 칼이다. 가장 늦게 뽑을 뿐.",
-      keywords: [],
+      keywords: ["군략"],
       target: "none",
       abilities: [
-        { trigger: "onPlay", op: "damage_random_enemy", amount: 2 },
-        { trigger: "onPlay", op: "gain_armor", amount: 2 }
+        {
+          name: "인내의 반계",
+          trigger: "onPlay",
+          op: "patience_counter",
+          maxStored: 2
+        },
+        { trigger: "onPlay", op: "faction_link", linkKind: "strategy" }
       ],
       palette: { primary: "#3C3457", secondary: "#9294A8", glow: "#B49CFF" },
       portrait: {
@@ -428,9 +487,18 @@
       rarity: "전설",
       role: "도독",
       flavor: "거문고 한 음이 흐트러지면, 불길의 진형도 바로잡는다.",
-      keywords: [],
+      keywords: ["연화"],
       target: "none",
-      abilities: [{ trigger: "onPlay", op: "damage_all_enemies", amount: 2 }],
+      abilities: [
+        {
+          name: "연환화계",
+          trigger: "onPlay",
+          op: "apply_burning_all",
+          amount: 1,
+          duration: "ownerTurnEnd"
+        },
+        { trigger: "onPlay", op: "faction_link", linkKind: "kindle" }
+      ],
       palette: { primary: "#8B3048", secondary: "#E5C67C", glow: "#FF805E" },
       portrait: {
         motif: "적벽을 물들이는 화선과 거문고 현",
@@ -449,9 +517,20 @@
       rarity: "희귀",
       role: "선봉",
       flavor: "방울 소리가 들렸을 때는 이미 적진 한가운데였다.",
-      keywords: ["돌진"],
+      keywords: ["돌진", "돌파", "연화"],
       target: "none",
-      abilities: [],
+      abilities: [
+        {
+          name: "백기야습",
+          trigger: "onPlay",
+          op: "buff_self",
+          attack: 1,
+          health: 0,
+          requiredRow: "rear",
+          duration: "thisTurn"
+        },
+        { trigger: "onPlay", op: "faction_link", linkKind: "kindle" }
+      ],
       palette: { primary: "#225866", secondary: "#C94B45", glow: "#64D9FF" },
       portrait: {
         motif: "비단 돛과 울리는 은방울",
@@ -695,9 +774,12 @@
       rarity: "전설",
       role: "비장",
       flavor: "사람 중에 여포, 말 중에 적토가 있다.",
-      keywords: ["돌진"],
+      keywords: ["돌진", "돌파", "천하무쌍", "약탈"],
       target: "none",
-      abilities: [],
+      abilities: [
+        { trigger: "onPlay", op: "faction_link", linkKind: "raid" }
+      ],
+      combat: { attacksPerTurn: 2, secondAttackSelfDamage: 2 },
       palette: { primary: "#8D1E2B", secondary: "#1C2029", glow: "#FF3D35" },
       portrait: {
         motif: "봉황 깃 관과 불길을 가르는 적토마",
@@ -858,7 +940,7 @@
       id: "qun_diao_chan", name: "초선", courtesy: "", faction: "군웅",
       cost: 5, attack: 1, health: 3, rarity: "전설", role: "연환미인",
       flavor: "달빛 아래의 한 걸음이 적의 충성을 흔든다.", keywords: [], target: "enemyMinion",
-      abilities: [{ trigger: "onPlay", op: "steal_enemy_minion", minCost: 3, target: "enemyMinion" }],
+      abilities: [{ name: "매혹", trigger: "onPlay", op: "steal_enemy_minion", minCost: 3, target: "enemyMinion" }],
       palette: { primary: "#793C67", secondary: "#E9C7B2", glow: "#FF9ACD" },
       portrait: { motif: "달빛과 흩날리는 모란", weapon: "칠보 부채", temperament: "우아한 결단" }
     },
@@ -887,28 +969,40 @@
       counter: "영웅 체력이 가득 찼을 때는 능력 가치가 줄어듭니다."
     },
     shu_guan_yu: {
-      identity: "중후반 돌파 장수",
-      plan: "7마나에 즉시 6의 공격력으로 핵심 적이나 영웅을 압박합니다.",
-      combo: "적 수호 하수인을 먼저 약화시킨 뒤 마무리 공격에 투입합니다.",
-      counter: "수호와 방패로 첫 공격을 흡수하면 효율이 크게 낮아집니다."
+      identity: "일기토 돌파 장수",
+      plan: "생존하며 처치할 적을 골라 일기토 후 추가 공격권을 얻습니다.",
+      combo: "촉 아군이 있는 전장에 출전하면 의형제 연계로 둘의 체력이 오릅니다.",
+      counter: "관우가 일기토에서 살아남지 못하도록 고공격 장수를 맞세웁니다.",
+      placement: "전열 추천 — 일기토 후 남은 체력으로 후열을 압박합니다.",
+      linkCondition: "다른 촉 아군이 있을 때 의형제 발동.",
+      statusDuration: "일기토 처치 보상은 출전한 턴에만 적용."
     },
     shu_zhang_fei: {
-      identity: "후반 수호벽",
-      plan: "높은 체력으로 공격 경로를 막아 다른 아군을 보호합니다.",
-      combo: "조조의 전장 강화와 함께 쓰면 제거하기 매우 어려워집니다.",
-      counter: "직접 피해와 여러 하수인의 집중 공격에는 결국 무너집니다."
+      identity: "장판 호통 수호벽",
+      plan: "적 전열의 공격력을 낮춘 뒤 수호로 후열 아군을 지킵니다.",
+      combo: "촉 아군과 함께 출전해 의형제 체력 강화까지 얻습니다.",
+      counter: "호통 영향을 받지 않는 후열 공격수나 직접 피해로 제거합니다.",
+      placement: "전열 추천 — 수호로 후열 장수의 피격을 막습니다.",
+      linkCondition: "다른 촉 아군이 있을 때 의형제 발동.",
+      statusDuration: "호통은 다음 적 턴이 끝날 때까지 지속."
     },
     shu_zhao_yun: {
-      identity: "방패 돌진 교환수",
-      plan: "즉시 공격하고 첫 반격 피해를 막아 유리한 교환을 만듭니다.",
-      combo: "공격력이 큰 적과 교환해도 방패가 첫 반격 피해를 전부 막습니다.",
-      counter: "작은 피해로 방패를 먼저 벗긴 뒤 큰 공격을 가합니다."
+      identity: "칠진칠출 돌파수",
+      plan: "돌진과 돌파로 보호받는 후열 핵심 장수를 바로 노립니다.",
+      combo: "방패가 첫 전투 피해를 막으므로 공격력이 큰 후열과도 유리하게 교환합니다.",
+      counter: "작은 피해로 방패를 먼저 벗긴 뒤 집중 공격합니다.",
+      placement: "후열 추천 — 방패를 보존하며 필요한 후열 대상을 찌릅니다.",
+      linkCondition: "고유 연계 없음.",
+      statusDuration: "방패는 처음 받는 피해 한 번까지 유지."
     },
     shu_zhuge_liang: {
-      identity: "손패 설계 책사",
-      plan: "카드 두 장을 먼저 확보한 뒤 비용이 남은 손패 하나를 무작위로 할인합니다.",
-      combo: "무작위 할인이 고비용 돌진 장수에 적중하면 다음 턴의 마무리를 앞당깁니다.",
-      counter: "손패가 비었거나 비용 1 이상인 카드가 없으면 할인 효과는 발동하지 않습니다."
+      identity: "공성계 후열 책사",
+      plan: "아군이 없을 때 후열에 배치해 다음 지휘관 공격 피해를 막습니다.",
+      combo: "공성계로 시간을 번 뒤 촉 장수를 내 의형제 연계를 시작합니다.",
+      counter: "작은 공격으로 공성계를 먼저 소모한 뒤 큰 공격을 연결합니다.",
+      placement: "후열 필수 — 다른 아군이 없어야 공성계가 발동합니다.",
+      linkCondition: "다른 촉 아군이 있을 때 의형제 발동.",
+      statusDuration: "다음 지휘관 공격 피해 한 번을 막을 때까지 유지."
     },
     shu_huang_zhong: {
       identity: "선택 사격 명궁",
@@ -929,10 +1023,13 @@
       counter: "광역 피해로 아군 수를 줄인 뒤 출전 가치를 낮춥니다."
     },
     wei_sima_yi: {
-      identity: "공수 전환 책사",
-      plan: "무작위 적을 약화시키면서 방어도 2로 반격을 대비합니다.",
-      combo: "광역 피해 뒤에 남은 하수인을 마무리할 확률을 높입니다.",
-      counter: "적 하수인을 여럿 유지하면 원하는 대상에 적중하기 어렵습니다."
+      identity: "인내 반계 책사",
+      plan: "피해를 받아 최대 2를 저장하고 다음 내 턴에 되돌려줍니다.",
+      combo: "위 아군과 함께 내면 군략으로 손의 최고 비용 카드를 할인합니다.",
+      counter: "작은 피해로 저장을 유도하거나 반계 전에 사마의를 제거합니다.",
+      placement: "후열 추천 — 반계를 준비하면서 생존 시간을 확보합니다.",
+      linkCondition: "다른 위 아군이 있을 때 군략 발동.",
+      statusDuration: "첫 피해에서 저장, 다음 내 턴 시작에 방출."
     },
     wei_xiahou_dun: {
       identity: "초반 수호병",
@@ -971,16 +1068,22 @@
       counter: "광역 피해를 아껴 두면 함께 소환된 1/1 수군을 한꺼번에 정리할 수 있습니다."
     },
     wu_zhou_yu: {
-      identity: "광역 소각 도독",
-      plan: "모든 적 하수인에게 피해 2를 주어 넓은 전장을 정리합니다.",
-      combo: "사마의나 황충의 추가 피해로 살아남은 적을 마무리합니다.",
-      counter: "체력 3 이상 하수인과 방패를 나눠 배치해 피해를 견딥니다."
+      identity: "연환화계 도독",
+      plan: "적 장수 모두에게 화상 1을 걸어 턴 종료 피해를 예고합니다.",
+      combo: "오 아군과 함께 내면 연화가 다른 적에게 화상을 하나 더 붙입니다.",
+      counter: "장수 수를 줄인 뒤 출전을 유도해 화상 총량을 낮춥니다.",
+      placement: "후열 추천 — 화상이 소진되는 동안 안전하게 전장을 지휘합니다.",
+      linkCondition: "다른 오 아군이 있을 때 연화 발동.",
+      statusDuration: "화상은 대상의 턴 종료에 피해 1 후 1 감소."
     },
     wu_gan_ning: {
-      identity: "저비용 유리대포",
-      plan: "3마나에 공격력 4를 즉시 투입해 짧은 피해 경주를 엽니다.",
-      combo: "수호가 사라진 순간 적 영웅에게 빠르게 피해를 누적합니다.",
-      counter: "체력이 2뿐이므로 작은 피해나 수호 하수인으로 교환합니다."
+      identity: "백기야습 돌파수",
+      plan: "후열에 배치해 출전 턴 공격력 +1을 얻고 즉시 후열을 습격합니다.",
+      combo: "오 아군이 있으면 연화로 피해를 보태 체력이 낮은 목표를 정리합니다.",
+      counter: "체력이 낮으므로 직접 피해나 전열 수호 장수로 교환합니다.",
+      placement: "후열 추천 — 백기야습 공격력 +1 조건입니다.",
+      linkCondition: "다른 오 아군이 있을 때 연화 발동.",
+      statusDuration: "백기야습의 공격력 +1은 출전한 턴까지 지속."
     },
     wu_lu_meng: {
       identity: "재공격 지휘관",
@@ -1037,10 +1140,22 @@
       counter: "상대가 하수인을 나란히 둘 수 없도록 수를 줄이면 양옆 강화의 최대 가치를 막습니다."
     },
     qun_lu_bu: {
-      identity: "최종 돌진 병기",
-      plan: "9마나에 8/8이 즉시 공격해 승부를 끝낼 위협을 만듭니다.",
-      combo: "제갈량의 무작위 비용 감소가 적중하면 한 턴 빠르게 출전할 수 있습니다.",
-      counter: "수호나 방패 하수인을 남겨 치명적인 첫 공격을 흡수합니다."
+      identity: "천하무쌍 파괴자",
+      plan: "한 턴에 두 번 공격해 전열과 후열을 연달아 무너뜨립니다.",
+      combo: "남만 또는 군웅 아군과 함께 내 약탈로 적의 반격까지 봉쇄합니다.",
+      counter: "수호와 방패로 공격 두 번을 낭비시키고 반동 피해를 유도합니다.",
+      placement: "전열 추천 — 높은 체력으로 반동 피해까지 감당합니다.",
+      linkCondition: "다른 남만·군웅 아군이 있을 때 약탈 발동.",
+      statusDuration: "매 턴 2회 공격, 두 번째 공격한 턴 종료에 자신에게 피해 2."
+    },
+    qun_diao_chan: {
+      identity: "연환계 매혹 책사",
+      plan: "비용 3 이상인 적 핵심 장수를 골라 내 빈 전장으로 가져옵니다.",
+      combo: "상대의 고비용 장수를 기다렸다가 전장 우위를 한 번에 뒤집습니다.",
+      counter: "비용 3 이상 장수를 내기 전에 초선을 압박하거나 전장을 채웁니다.",
+      placement: "후열 추천 — 매혹 후 초선을 안전하게 지킵니다.",
+      linkCondition: "고유 연계 없음. 비용 3 이상 적 장수만 매혹 가능.",
+      statusDuration: "가져온 장수는 다음 내 턴부터 공격 가능."
     }
   });
 
@@ -1112,6 +1227,15 @@
           "을 부여합니다."
         );
       case "buff_self":
+        if (ability.requiredRow === "rear") {
+          return (
+            prefix +
+            (ability.name ? ability.name + " — " : "") +
+            "후열 배치 시 이번 턴 공격력 +" +
+            ability.attack +
+            "."
+          );
+        }
         return (
           prefix +
           "이 하수인에게 +" +
@@ -1143,6 +1267,7 @@
         );
       case "steal_enemy_minion":
         return prefix +
+          (ability.name ? ability.name + " — " : "") +
           (ability.minCost == null
             ? "선택한 적 하수인 하나를 내 전장으로 가져옵니다."
             : "비용이 " + ability.minCost + " 이상인 선택한 적 하수인 하나를 내 전장으로 가져옵니다.") +
@@ -1151,6 +1276,40 @@
         return prefix + "모든 아군 하수인의 방어력을 +" + ability.amount + " 합니다.";
       case "steal_enemy_minion_max_cost":
         return prefix + "비용이 " + ability.maxCost + " 이하인 선택한 적 하수인 하나를 내 전장으로 가져옵니다.";
+      case "duel_target":
+        return (
+          prefix +
+          "일기토 — 적 장수와 공격력 피해를 교환. " +
+          "처치 후 생존하면 이번 턴 공격 가능."
+        );
+      case "weaken_enemy_front":
+        return (
+          prefix +
+          "장판의 호통 — 적 전열 전체의 공격력 -" +
+          ability.amount +
+          ". 다음 적 턴 종료까지 지속됩니다."
+        );
+      case "empty_fort":
+        return (
+          prefix +
+          "공성계 — 다른 아군 없이 후열에 배치하면 내 지휘관이 받을 다음 공격 피해를 한 번 막습니다."
+        );
+      case "patience_counter":
+        return (
+          prefix +
+          "인내의 반계 — 처음 받은 피해 중 최대 " +
+          ability.maxStored +
+          "를 저장해 다음 내 턴 시작에 적에게 되돌립니다."
+        );
+      case "apply_burning_all":
+        return (
+          prefix +
+          "연환화계 — 모든 적 장수에게 화상 " +
+          ability.amount +
+          "을 부여합니다. 화상은 대상의 턴 종료에 피해를 주고 1 감소합니다."
+        );
+      case "faction_link":
+        return prefix + LINK_NAMES[ability.linkKind] + " 연계.";
       default:
         return prefix + "알 수 없는 효과.";
     }
@@ -1161,6 +1320,7 @@
       return keyword + " — " + KEYWORD_GLOSSARY[keyword];
     });
     card.abilities.forEach(function abilityText(ability) {
+      if (ability.op === "faction_link" && card.abilities.length > 1) return;
       sentences.push(describeAbility(card, ability));
     });
     return sentences.length ? sentences.join(" ") : "능력 없음.";
@@ -1217,6 +1377,9 @@
           ability.health
         );
       case "buff_self":
+        if (ability.requiredRow === "rear") {
+          return prefix + "후열 배치 시 이번 턴 공격력 +" + ability.attack;
+        }
         return (
           prefix + "이 하수인 +" + ability.attack + "/+" + ability.health
         );
@@ -1250,6 +1413,18 @@
         return prefix + "모든 아군 방어력 +" + ability.amount;
       case "steal_enemy_minion_max_cost":
         return prefix + "비용 " + ability.maxCost + " 이하 적 하수인 1명 획득";
+      case "duel_target":
+        return prefix + "일기토 후 단독 생존·처치 시 공격 가능";
+      case "weaken_enemy_front":
+        return prefix + "적 전열 공격력 -" + ability.amount + "(다음 적 턴까지)";
+      case "empty_fort":
+        return prefix + "단독 후열 배치 시 다음 지휘관 공격 무효";
+      case "patience_counter":
+        return prefix + "첫 피해 중 최대 " + ability.maxStored + " 저장 후 다음 턴 반격";
+      case "apply_burning_all":
+        return prefix + "모든 적 장수에게 화상 " + ability.amount;
+      case "faction_link":
+        return prefix + LINK_NAMES[ability.linkKind] + " 연계";
       default:
         return prefix + "알 수 없는 효과";
     }
@@ -1259,6 +1434,7 @@
     var phrases = card.keywords.slice();
     var previousTrigger = null;
     card.abilities.forEach(function summaryAbility(ability) {
+      if (ability.op === "faction_link") return;
       phrases.push(
         describeAbilitySummary(card, ability, ability.trigger !== previousTrigger)
       );
@@ -1301,6 +1477,9 @@
       palette: Object.assign({}, seed.palette),
       portrait: Object.assign({}, seed.portrait)
     };
+    if (seed.combat) {
+      card.combat = Object.assign({}, seed.combat);
+    }
     card.text = describeCard(card);
     card.summaryText = describeSummary(card);
     return card;
@@ -1463,7 +1642,9 @@
       "draw",
       "gain_armor",
       "reduce_random_hand_cost",
-      "grant_all_allies_armor"
+      "grant_all_allies_armor",
+      "weaken_enemy_front",
+      "apply_burning_all"
     ];
     var needsStats = [
       "buff_target",
@@ -1517,6 +1698,59 @@
       !isIntegerInRange(ability.minCost, 0, 10)
     ) {
       errors.push(path + ": minCost는 0~10 정수여야 함");
+    }
+    if (
+      ability.name != null &&
+      (typeof ability.name !== "string" || ability.name.trim() === "")
+    ) {
+      errors.push(path + ": name은 비어 있지 않은 문자열이어야 함");
+    }
+    if (
+      ability.op === "duel_target" &&
+      ability.target !== "enemyMinion"
+    ) {
+      errors.push(path + ": 일기토 target은 enemyMinion이어야 함");
+    }
+    if (
+      ability.op === "weaken_enemy_front" &&
+      ability.duration !== "nextEnemyTurnEnd"
+    ) {
+      errors.push(path + ": 호통 지속시간은 nextEnemyTurnEnd여야 함");
+    }
+    if (
+      ability.op === "empty_fort" &&
+      (ability.requiredRow !== "rear" ||
+        ability.requiresSolo !== true ||
+        ability.charges !== 1)
+    ) {
+      errors.push(path + ": 공성계는 단독 후열 배치와 1회 방어를 선언해야 함");
+    }
+    if (
+      ability.op === "patience_counter" &&
+      !isIntegerInRange(ability.maxStored, 1, 10)
+    ) {
+      errors.push(path + ": 반계 maxStored는 1~10 정수여야 함");
+    }
+    if (
+      ability.op === "apply_burning_all" &&
+      ability.duration !== "ownerTurnEnd"
+    ) {
+      errors.push(path + ": 화상 지속 규칙은 ownerTurnEnd여야 함");
+    }
+    if (
+      ability.op === "buff_self" &&
+      ability.requiredRow != null &&
+      (ability.requiredRow !== "rear" || ability.duration !== "thisTurn")
+    ) {
+      errors.push(path + ": 조건부 후열 강화는 rear/thisTurn이어야 함");
+    }
+    if (ability.op === "faction_link") {
+      var linkKeyword = LINK_KEYWORDS[ability.linkKind];
+      if (!linkKeyword) {
+        errors.push(path + ": 지원하지 않는 linkKind");
+      } else if (card.keywords.indexOf(linkKeyword) < 0) {
+        errors.push(path + ": " + linkKeyword + " 키워드 선언이 필요함");
+      }
     }
   }
 
@@ -1574,7 +1808,8 @@
         ability.op === "damage_target" ||
         ability.op === "buff_target" ||
         ability.op === "steal_enemy_minion" ||
-        ability.op === "steal_enemy_minion_max_cost"
+        ability.op === "steal_enemy_minion_max_cost" ||
+        ability.op === "duel_target"
       );
     });
     if (usesTarget && card.target === "none") {
@@ -1610,6 +1845,14 @@
     ) {
       errors.push(card.id + ": 탈취 대상은 enemyMinion이어야 함");
     }
+    if (
+      card.abilities.some(function duelTarget(ability) {
+        return ability.op === "duel_target";
+      }) &&
+      card.target !== "enemyMinion"
+    ) {
+      errors.push(card.id + ": 일기토 대상은 enemyMinion이어야 함");
+    }
     if (card.text !== describeCard(card)) {
       errors.push(card.id + ": 카드 텍스트가 효과 DSL과 일치하지 않음");
     }
@@ -1635,6 +1878,13 @@
     });
     if (!isToken) {
       var tacticFields = ["identity", "plan", "combo", "counter"];
+      if (FEATURED_GENERAL_IDS.indexOf(card.id) >= 0) {
+        tacticFields = tacticFields.concat([
+          "placement",
+          "linkCondition",
+          "statusDuration"
+        ]);
+      }
       if (
         !card.tactics ||
         tacticFields.some(function missingTactic(field) {
@@ -1646,6 +1896,23 @@
       ) {
         errors.push(card.id + ": 전술 역할·운용·콤보·대응 정보가 불완전함");
       }
+    }
+    if (card.combat) {
+      if (
+        !isIntegerInRange(card.combat.attacksPerTurn, 1, 3) ||
+        !isIntegerInRange(card.combat.secondAttackSelfDamage, 0, 10)
+      ) {
+        errors.push(card.id + ": combat 공격 횟수·반동 수치가 올바르지 않음");
+      }
+      if (
+        card.keywords.indexOf("천하무쌍") < 0 ||
+        card.combat.attacksPerTurn !== 2 ||
+        card.combat.secondAttackSelfDamage !== 2
+      ) {
+        errors.push(card.id + ": 천하무쌍 combat 선언은 2회 공격·반동 2여야 함");
+      }
+    } else if (card.keywords.indexOf("천하무쌍") >= 0) {
+      errors.push(card.id + ": 천하무쌍 keyword에는 combat 선언이 필요함");
     }
     if (
       !card.palette ||
@@ -1730,6 +1997,8 @@
       if (keyword === "수호") score += Math.min(2, card.health * 0.25);
       if (keyword === "방패") score += 1.6;
       if (keyword === "저격") score += card.attack * 0.35;
+      if (keyword === "돌파") score += card.attack * 0.2;
+      if (keyword === "천하무쌍") score += card.attack * 0.6;
     });
     card.abilities.forEach(function scoreAbility(ability) {
       var amount = ability.amount || 1;
@@ -1749,6 +2018,14 @@
       if (ability.op === "steal_enemy_minion_max_cost") {
         score += (ability.maxCost || 0) * 1.2;
       }
+      if (ability.op === "duel_target") score += 2.2;
+      if (ability.op === "weaken_enemy_front") score += amount * 1.5;
+      if (ability.op === "empty_fort") score += 2;
+      if (ability.op === "patience_counter") {
+        score += (ability.maxStored || 0) * 1.1;
+      }
+      if (ability.op === "apply_burning_all") score += amount * 3;
+      if (ability.op === "faction_link") score += 0.5;
       if (ability.op === "buff_target") {
         score += (ability.attack + ability.health) * 1.1;
       }
@@ -1759,7 +2036,8 @@
         score += (ability.attack + ability.health) * 1.6;
       }
       if (ability.op === "buff_self") {
-        score += ability.attack + ability.health;
+        score += (ability.attack + ability.health) *
+          (ability.requiredRow ? 0.25 : 1);
       }
       if (ability.op === "summon_token") {
         var token = TOKEN_BY_ID[ability.tokenId];
@@ -1862,6 +2140,37 @@
       validateDefinition(token, seenIds, errors, true);
     });
     validateSummonGraph(errors);
+
+    var factionLinks = {
+      brotherhood: 0,
+      strategy: 0,
+      kindle: 0,
+      raid: 0
+    };
+    CARDS.forEach(function countFactionLinks(card) {
+      card.abilities.forEach(function countLink(ability) {
+        if (ability.op === "faction_link" && factionLinks[ability.linkKind] != null) {
+          factionLinks[ability.linkKind] += 1;
+        }
+      });
+    });
+    Object.keys(factionLinks).forEach(function requireFactionLink(kind) {
+      if (factionLinks[kind] < 1) {
+        errors.push(LINK_NAMES[kind] + " 연계 선언이 최소 1장에 필요함");
+      }
+    });
+
+    var diaoChan = CARD_BY_ID.qun_diao_chan;
+    var diaoCharm = diaoChan && diaoChan.abilities[0];
+    if (
+      !diaoChan ||
+      diaoChan.cost !== 5 ||
+      !diaoCharm ||
+      diaoCharm.op !== "steal_enemy_minion" ||
+      diaoCharm.minCost !== 3
+    ) {
+      errors.push("초선은 비용 5와 비용 3 이상 매혹 조건을 유지해야 함");
+    }
 
     if (CARDS.length !== 50) {
       errors.push("카드 정의는 정확히 50장이어야 함");
@@ -2043,6 +2352,7 @@
         deckSize: deck.length,
         tokens: TOKENS.length,
         factions: factions,
+        factionLinks: factionLinks,
         averageDeckCost: Number((totalCost / deck.length).toFixed(2)),
         curve: curveFor(deck),
         cheapCards: cheapCards,
@@ -2081,6 +2391,14 @@
     },
     getKeywordGlossary: function getKeywordGlossary() {
       return clone(KEYWORD_GLOSSARY);
+    },
+    getDslSchema: function getDslSchema() {
+      return {
+        keywords: KEYWORDS.slice(),
+        triggers: TRIGGERS.slice(),
+        ops: OPS.slice(),
+        linkKinds: Object.keys(LINK_NAMES)
+      };
     },
     auditBalance: balanceAudit,
     validate: validate

@@ -274,6 +274,19 @@ async function main() {
     "commander-liubei",
     "commander-sunquan",
     "commander-nomad",
+    "formation-place",
+    "formation-block",
+    "link-brotherhood",
+    "link-strategy",
+    "link-kindle",
+    "link-raid",
+    "duel-start",
+    "duel-hit",
+    "status-burn",
+    "status-counter",
+    "status-intimidate",
+    "status-empty-fort",
+    "status-raid",
     "invalid",
   ];
   const soundFingerprints = new Map();
@@ -359,6 +372,19 @@ async function main() {
     ["effect:trigger", { op: "heal_friendly_hero" }, "effect"],
     ["turn:start", { actor: "player" }, "turn"],
     ["action:invalid", { reason: "not_your_turn" }, "invalid"],
+    ["formation:place", { actor: "player", placement: "front", slot: 0 }, "formation-place"],
+    ["formation:block", { actor: "ai", reason: "front_protects_rear" }, "formation-block"],
+    ["faction:link", { actor: "player", linkKind: "brotherhood" }, "link-brotherhood"],
+    ["faction:link", { actor: "player", linkKind: "strategy" }, "link-strategy"],
+    ["faction:link", { actor: "ai", linkKind: "kindle" }, "link-kindle"],
+    ["faction:link", { actor: "ai", linkKind: "raid" }, "link-raid"],
+    ["duel:start", { actor: "player", sourceAttack: 5, targetAttack: 4 }, "duel-start"],
+    ["duel:hit", { actor: "player", damageToTarget: 5, damageToSource: 4 }, "duel-hit"],
+    ["status:burn", { actor: "ai", phase: "applied", amount: 1 }, "status-burn"],
+    ["status:counter", { actor: "player", phase: "stored", amount: 2 }, "status-counter"],
+    ["status:intimidate", { actor: "ai", amount: 1, duration: 1 }, "status-intimidate"],
+    ["status:empty-fort", { actor: "player", phase: "armed", charges: 1 }, "status-empty-fort"],
+    ["status:raid", { actor: "ai", phase: "pending" }, "status-raid"],
     ["game:end", { winner: "player" }, "victory"],
     ["game:end", { winner: "ai" }, "defeat"],
     ["game:end", { winner: "draw" }, "draw-finale"],
@@ -375,6 +401,126 @@ async function main() {
     "shield", "guard", "death", "turn", "victory", "defeat", "draw-finale"].forEach((name) => {
     assert.ok(signatureCounts[name] >= 1, `${name} must have a dedicated signature`);
   });
+
+  const tacticalNames = [
+    "formation-place", "formation-block",
+    "link-brotherhood", "link-strategy", "link-kindle", "link-raid",
+    "duel-start", "duel-hit",
+    "status-burn", "status-counter", "status-intimidate",
+    "status-empty-fort", "status-raid",
+  ];
+  tacticalNames.forEach((name) => {
+    assert.ok(signatureCounts[name] >= 1, `${name} must route from its semantic event`);
+  });
+  assert.equal(
+    new Set(tacticalNames.map((name) => soundFingerprints.get(name))).size,
+    tacticalNames.length,
+    "all tactical cues have distinct deterministic synthesis fingerprints",
+  );
+
+  const tacticalNodeCounts = new Map();
+  tacticalNames.forEach((name) => {
+    context.currentTime += 0.9;
+    const nodeOffset = context.nodes.length;
+    const scheduleOffset = audio._debug().scheduledSounds.length;
+    assert.equal(audio.play(name, { volume: 99, pan: 99 }), true);
+    const nodes = context.nodes.slice(nodeOffset);
+    const scheduled = audio._debug().scheduledSounds.slice(scheduleOffset).at(-1);
+    const sourceStops = nodes
+      .filter((node) => Array.isArray(node.stops))
+      .flatMap((node) => node.stops.map((args) => args[0]))
+      .filter(Number.isFinite);
+    tacticalNodeCounts.set(name, nodes.length);
+    assert.ok(
+      nodes.length >= 6 && nodes.length <= 24,
+      `${name} stays inside its short procedural node budget`,
+    );
+    assert.ok(sourceStops.length > 0, `${name} schedules finite source stops`);
+    assert.ok(
+      Math.max(...sourceStops) <= scheduled.startAt + 0.8,
+      `${name} source tails finish inside 0.8 seconds`,
+    );
+    assert.equal(scheduled.volume, 0.88, `${name} clamps extreme input volume`);
+    assert.equal(scheduled.pan, 0.72, `${name} clamps extreme input pan`);
+  });
+
+  context.currentTime += 1;
+  const formationPlaceBefore = audio._debug().playCounts["formation-place"] || 0;
+  const genericPlayBefore = audio._debug().playCounts.play || 0;
+  assert.equal(
+    audio.handleEvent("formation:place", { actor: "player", placement: "rear" }),
+    true,
+  );
+  assert.equal(
+    audio.handleEvent("card:play", { actor: "player", card: { faction: "shu" } }),
+    true,
+  );
+  assert.equal(audio._debug().playCounts["formation-place"], formationPlaceBefore + 1);
+  assert.equal(
+    audio._debug().playCounts.play || 0,
+    genericPlayBefore,
+    "formation placement replaces the generic card-play transient in the same result window",
+  );
+
+  context.currentTime += 1;
+  const formationBlockBefore = audio._debug().playCounts["formation-block"] || 0;
+  assert.equal(
+    audio.handleEvent("formation:block", { actor: "ai", reason: "front_protects_rear" }),
+    true,
+  );
+  assert.equal(
+    audio.handleEvent("action:invalid", {
+      actor: "ai",
+      blockedByFormation: true,
+      reason: "front_protects_rear",
+    }),
+    true,
+  );
+  assert.equal(
+    audio._debug().playCounts["formation-block"],
+    formationBlockBefore + 1,
+    "formation rejection coalesces to one shield cue",
+  );
+
+  context.currentTime += 1;
+  const burnBefore = audio._debug().playCounts["status-burn"] || 0;
+  for (let index = 0; index < 6; index += 1) {
+    assert.equal(
+      audio.handleEvent("status:burn", { actor: "ai", phase: "tick", amount: 1 }),
+      true,
+    );
+  }
+  assert.equal(
+    audio._debug().playCounts["status-burn"],
+    burnBefore + 1,
+    "same-frame burn ticks coalesce instead of clipping",
+  );
+
+  context.currentTime += 1;
+  const duelScheduleOffset = audio._debug().scheduledSounds.length;
+  audio.handleEvent("duel:start", { actor: "player" });
+  audio.handleEvent("duel:hit", { actor: "player", damageToTarget: 5 });
+  const duelSchedule = audio._debug().scheduledSounds.slice(duelScheduleOffset);
+  const duelStart = duelSchedule.find((entry) => entry.name === "duel-start");
+  const duelHit = duelSchedule.find((entry) => entry.name === "duel-hit");
+  assert.ok(duelStart && duelHit);
+  assert.ok(
+    duelHit.startAt >= duelStart.startAt + 0.2,
+    "duel contact follows the challenge transient instead of masking it",
+  );
+
+  context.currentTime += 1;
+  const genericEffectBefore = audio._debug().playCounts.effect || 0;
+  audio.handleEvent("status:intimidate", { actor: "ai", amount: 1 });
+  assert.equal(
+    audio.handleEvent("effect:trigger", { op: "weaken_enemy_front" }),
+    true,
+  );
+  assert.equal(
+    audio._debug().playCounts.effect || 0,
+    genericEffectBefore,
+    "dedicated status cues suppress the matching generic effect tail",
+  );
 
   const commanderScenarios = [
     {
@@ -1026,6 +1172,29 @@ async function main() {
   );
 
   context.currentTime += 2;
+  const tacticalBurstStart = context.currentTime;
+  for (let index = 0; index < 160; index += 1) {
+    context.currentTime += 0.012;
+    audio.play(tacticalNames[index % tacticalNames.length], {
+      volume: 99,
+      pan: index % 2 === 0 ? -99 : 99,
+    });
+  }
+  assert.ok(
+    audio._debug().activeVoices <= 12,
+    "tactical burst obeys the mobile 12-voice cap",
+  );
+  const tacticalBurst = audio._debug().scheduledSounds
+    .filter((entry) => entry.requestedAt >= tacticalBurstStart);
+  assert.ok(tacticalBurst.length >= tacticalNames.length);
+  assert.ok(
+    tacticalBurst.every((entry) =>
+      entry.volume <= 0.88 && Math.abs(entry.pan) <= 0.72,
+    ),
+    "tactical burst remains inside its stricter volume and stereo safety caps",
+  );
+
+  context.currentTime += 2;
   for (let index = 0; index < 1000; index += 1) {
     audio.handleEvent("attack:start", {
       attackerId: `restart-pending-${index}`,
@@ -1050,6 +1219,7 @@ async function main() {
   assert.equal(audio._debug().pendingSemanticEvent, null);
   assert.equal(audio._debug().effectCueRecords, 0);
   assert.equal(audio._debug().effectDamageMerges, 0);
+  assert.equal(audio._debug().tacticalEventRecords, 0);
   assert.equal(audio._debug().activeVoices, 0);
   assert.equal(audio._debug().timers, 0);
   assert.ok(
@@ -1067,6 +1237,7 @@ async function main() {
   assert.equal(audio._debug().pendingAttacks, 0);
   assert.equal(audio._debug().effectCueRecords, 0);
   assert.equal(audio._debug().effectDamageMerges, 0);
+  assert.equal(audio._debug().tacticalEventRecords, 0);
   assert.equal(audio._debug().activeVoices, 0);
   assert.equal(audio._debug().timers, 0);
 
@@ -1131,6 +1302,12 @@ async function main() {
   audio.setMuted(true);
   assert.equal(audio.isMuted(), true);
   assert.equal(audio.play("victory"), false);
+  const mutedTacticalBefore = audio._debug().playCounts["status-raid"] || 0;
+  assert.equal(
+    audio.handleEvent("status:raid", { actor: "ai", phase: "active" }),
+    false,
+  );
+  assert.equal(audio._debug().playCounts["status-raid"] || 0, mutedTacticalBefore);
   audio.setMuted(false);
   assert.equal(audio.isMuted(), false);
   context.currentTime += 1;
@@ -1142,6 +1319,7 @@ async function main() {
   assert.equal(audio._debug().timers, 0);
   assert.equal(audio._debug().effectCueRecords, 0);
   assert.equal(audio._debug().effectDamageMerges, 0);
+  assert.equal(audio._debug().tacticalEventRecords, 0);
   assert.ok(
     context.nodes.slice(resultNodeOffset).every((node) => node.disconnected),
     "all result-cue nodes disconnect on destroy",
@@ -1313,6 +1491,42 @@ async function main() {
     "bubble click does not add a generic cue after pending semantic playback",
   );
   firstSemanticAudio.destroy();
+
+  const firstTacticalDocument = createMockDocument();
+  const firstTacticalAudio = globalThis.TK.modules.audio.createAudio({
+    AudioContext: MockAudioContext,
+    document: firstTacticalDocument,
+    navigator: { maxTouchPoints: 5, userAgent: "Mobile Tactical First Input" },
+  });
+  firstTacticalDocument.listeners.get("pointerdown")({
+    type: "pointerdown",
+    target: canvasTarget,
+    clientX: 520,
+    clientY: 700,
+  });
+  assert.equal(
+    firstTacticalAudio.handleEvent("formation:place", {
+      actor: "player",
+      placement: "front",
+      slot: 0,
+    }),
+    true,
+    "a first-frame tactical cue is retained while audio unlocks",
+  );
+  firstTacticalAudio.handleEvent("effect:trigger", { op: "draw" });
+  assert.equal(
+    firstTacticalAudio._debug().pendingSemanticEvent,
+    "formation:place",
+    "tactical events outrank generic effect feedback during unlock",
+  );
+  await firstTacticalAudio.unlock();
+  assert.equal(firstTacticalAudio._debug().pendingSemanticEvent, null);
+  assert.equal(
+    firstTacticalAudio._debug().playCounts["formation-place"],
+    1,
+    "the retained tactical signature replays exactly once after unlock",
+  );
+  firstTacticalAudio.destroy();
 
   const reducedDocument = createMockDocument();
   const reducedAudio = globalThis.TK.modules.audio.createAudio({

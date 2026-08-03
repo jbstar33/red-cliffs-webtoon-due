@@ -32,6 +32,15 @@
     "commander:liubei": "commander-liubei",
     "commander:sunquan": "commander-sunquan",
     "commander:nomad": "commander-nomad",
+    "formation:place": "formation-place",
+    "formation:block": "formation-block",
+    "duel:start": "duel-start",
+    "duel:hit": "duel-hit",
+    "status:burn": "status-burn",
+    "status:counter": "status-counter",
+    "status:intimidate": "status-intimidate",
+    "status:empty-fort": "status-empty-fort",
+    "status:raid": "status-raid",
   });
 
   const SOUND_POLICY = Object.freeze({
@@ -70,9 +79,30 @@
     "commander-liubei": { duration: 0.48, cooldown: 0.08, same: 2, priority: 3 },
     "commander-sunquan": { duration: 0.58, cooldown: 0.08, same: 2, priority: 3 },
     "commander-nomad": { duration: 0.48, cooldown: 0.08, same: 2, priority: 3 },
+    "formation-place": { duration: 0.44, cooldown: 0.035, same: 2, priority: 2 },
+    "formation-block": { duration: 0.5, cooldown: 0.075, same: 2, priority: 3 },
+    "link-brotherhood": { duration: 0.52, cooldown: 0.065, same: 2, priority: 3 },
+    "link-strategy": { duration: 0.56, cooldown: 0.065, same: 2, priority: 3 },
+    "link-kindle": { duration: 0.58, cooldown: 0.065, same: 2, priority: 3 },
+    "link-raid": { duration: 0.52, cooldown: 0.065, same: 2, priority: 3 },
+    "duel-start": { duration: 0.48, cooldown: 0.06, same: 2, priority: 3 },
+    "duel-hit": { duration: 0.48, cooldown: 0.045, same: 2, priority: 4 },
+    "status-burn": { duration: 0.48, cooldown: 0.045, same: 3, priority: 3 },
+    "status-counter": { duration: 0.58, cooldown: 0.065, same: 2, priority: 4 },
+    "status-intimidate": { duration: 0.62, cooldown: 0.075, same: 2, priority: 3 },
+    "status-empty-fort": { duration: 0.66, cooldown: 0.075, same: 2, priority: 4 },
+    "status-raid": { duration: 0.5, cooldown: 0.055, same: 2, priority: 3 },
     invalid: { duration: 0.22, cooldown: 0.09, same: 2, priority: 1 },
   });
+  const TACTICAL_SOUND_NAMES = new Set([
+    "formation-place", "formation-block",
+    "link-brotherhood", "link-strategy", "link-kindle", "link-raid",
+    "duel-start", "duel-hit",
+    "status-burn", "status-counter", "status-intimidate",
+    "status-empty-fort", "status-raid",
+  ]);
   const EFFECT_RESULT_DEDUPE_SECONDS = 0.085;
+  const TACTICAL_EVENT_DEDUPE_SECONDS = 0.055;
 
   const WEAPON_FAMILIES = Object.freeze({
     token_jiangdong_marine: "metal",
@@ -275,6 +305,7 @@
     let lastHoverCell = "";
     let lastHoverTime = -1;
     let lastNomadPowerAt = -1;
+    const tacticalEventTimes = new Map();
 
     try {
       if (config.muted == null && scope.localStorage) {
@@ -1525,6 +1556,257 @@
       });
     }
 
+    function soundFormationPlace(voice, volume) {
+      const now = voice.startAt;
+      addWarDrum(voice, now, volume * 0.46, 0.78, "formation-place");
+      tone(voice, {
+        start: now + 0.055,
+        duration: 0.28,
+        frequency: 294,
+        endFrequency: 330,
+        type: "triangle",
+        gain: 0.038 * volume,
+        sustain: 0.014 * volume,
+      });
+    }
+
+    function soundFormationBlock(voice, volume) {
+      const now = voice.startAt;
+      noise(voice, {
+        start: now,
+        duration: 0.14,
+        seed: "formation-block:shield",
+        filter: "bandpass",
+        frequency: 690,
+        endFrequency: 250,
+        q: 2.5,
+        gain: 0.068 * volume,
+      });
+      [220, 165].forEach((frequency, index) => {
+        tone(voice, {
+          start: now + index * 0.055,
+          duration: 0.34 - index * 0.05,
+          frequency,
+          endFrequency: frequency * 0.72,
+          type: index ? "square" : "triangle",
+          gain: (0.056 - index * 0.017) * volume,
+          sustain: 0.012 * volume,
+        });
+      });
+    }
+
+    function soundLinkBrotherhood(voice, volume) {
+      const now = voice.startAt;
+      [330, 495, 660].forEach((frequency, index) => {
+        tone(voice, {
+          start: now + index * 0.055,
+          duration: 0.31 - index * 0.025,
+          frequency,
+          endFrequency: frequency * 1.035,
+          type: index === 0 ? "triangle" : "sine",
+          gain: (0.044 - index * 0.006) * volume,
+          sustain: 0.018 * volume,
+        });
+      });
+    }
+
+    function soundLinkStrategy(voice, volume) {
+      const now = voice.startAt;
+      addXiaoBreath(voice, now, 392, volume * 0.76, true);
+      tone(voice, {
+        start: now + 0.17,
+        duration: 0.26,
+        frequency: 784,
+        endFrequency: 1047,
+        type: "triangle",
+        gain: 0.027 * volume,
+      });
+    }
+
+    function soundLinkKindle(voice, volume) {
+      const now = voice.startAt;
+      noise(voice, {
+        start: now,
+        duration: 0.38,
+        seed: "link-kindle:embers",
+        rate: 1.78,
+        filter: "highpass",
+        frequency: 1700,
+        endFrequency: 4300,
+        q: 0.72,
+        gain: 0.045 * volume,
+      });
+      [440, 698].forEach((frequency, index) => {
+        tone(voice, {
+          start: now + 0.06 + index * 0.09,
+          duration: 0.28,
+          frequency,
+          endFrequency: frequency * 1.24,
+          type: "sawtooth",
+          gain: (0.03 - index * 0.006) * volume,
+        });
+      });
+    }
+
+    function soundLinkRaid(voice, volume) {
+      const now = voice.startAt;
+      addWarDrum(voice, now, volume * 0.38, 1.08, "link-raid:hoof");
+      [196, 247].forEach((frequency, index) => {
+        tone(voice, {
+          start: now + 0.11 + index * 0.075,
+          duration: 0.18,
+          frequency,
+          endFrequency: frequency * 0.78,
+          type: "square",
+          gain: (0.032 - index * 0.006) * volume,
+        });
+      });
+    }
+
+    function soundDuelStart(voice, volume) {
+      const now = voice.startAt;
+      noise(voice, {
+        start: now,
+        duration: 0.24,
+        seed: "duel-start:draw-blade",
+        rate: 1.34,
+        filter: "highpass",
+        frequency: 1500,
+        endFrequency: 5200,
+        q: 2.1,
+        gain: 0.058 * volume,
+      });
+      [294, 440].forEach((frequency, index) => {
+        tone(voice, {
+          start: now + 0.045 + index * 0.055,
+          duration: 0.31,
+          frequency,
+          endFrequency: frequency * (index ? 1.16 : 0.93),
+          type: index ? "sine" : "triangle",
+          gain: (0.046 - index * 0.01) * volume,
+          sustain: 0.013 * volume,
+        });
+      });
+    }
+
+    function soundDuelHit(voice, volume) {
+      const now = voice.startAt;
+      noise(voice, {
+        start: now,
+        duration: 0.16,
+        seed: "duel-hit:crossed-steel",
+        rate: 1.52,
+        filter: "bandpass",
+        frequency: 3300,
+        endFrequency: 980,
+        q: 3.1,
+        gain: 0.082 * volume,
+      });
+      [740, 1110, 185].forEach((frequency, index) => {
+        tone(voice, {
+          start: now + index * 0.012,
+          duration: index === 2 ? 0.28 : 0.2,
+          frequency,
+          endFrequency: frequency * (index === 2 ? 0.66 : 0.91),
+          type: index === 2 ? "triangle" : "square",
+          gain: (index === 2 ? 0.05 : 0.036) * volume,
+        });
+      });
+    }
+
+    function soundStatusBurn(voice, volume) {
+      const now = voice.startAt;
+      noise(voice, {
+        start: now,
+        duration: 0.4,
+        seed: "status-burn:crackle",
+        rate: 2.1,
+        filter: "highpass",
+        frequency: 2100,
+        endFrequency: 5100,
+        q: 0.6,
+        gain: 0.052 * volume,
+      });
+      tone(voice, {
+        start: now + 0.035,
+        duration: 0.36,
+        frequency: 620,
+        endFrequency: 240,
+        type: "sawtooth",
+        gain: 0.029 * volume,
+      });
+    }
+
+    function soundStatusCounter(voice, volume) {
+      const now = voice.startAt;
+      [196, 294, 587].forEach((frequency, index) => {
+        tone(voice, {
+          start: now + index * 0.07,
+          duration: 0.3 - index * 0.025,
+          frequency,
+          endFrequency: frequency * 1.08,
+          type: index === 2 ? "square" : "triangle",
+          gain: (0.046 - index * 0.006) * volume,
+          sustain: 0.014 * volume,
+        });
+      });
+    }
+
+    function soundStatusIntimidate(voice, volume) {
+      const now = voice.startAt;
+      addWarDrum(voice, now, volume * 0.58, 1.18, "status-intimidate");
+      tone(voice, {
+        start: now + 0.07,
+        duration: 0.46,
+        frequency: 172,
+        endFrequency: 74,
+        type: "sawtooth",
+        gain: 0.043 * volume,
+        sustain: 0.016 * volume,
+      });
+    }
+
+    function soundStatusEmptyFort(voice, volume) {
+      const now = voice.startAt;
+      addXiaoBreath(voice, now, 523, volume * 0.68, false);
+      [1047, 784].forEach((frequency, index) => {
+        tone(voice, {
+          start: now + 0.18 + index * 0.1,
+          duration: 0.31,
+          frequency,
+          endFrequency: frequency * 0.985,
+          type: "sine",
+          gain: (0.027 - index * 0.005) * volume,
+          sustain: 0.013 * volume,
+        });
+      });
+    }
+
+    function soundStatusRaid(voice, volume) {
+      const now = voice.startAt;
+      noise(voice, {
+        start: now,
+        duration: 0.17,
+        seed: "status-raid:shackle",
+        rate: 0.82,
+        filter: "bandpass",
+        frequency: 880,
+        endFrequency: 310,
+        q: 3.2,
+        gain: 0.07 * volume,
+      });
+      [262, 131].forEach((frequency, index) => {
+        tone(voice, {
+          start: now + index * 0.065,
+          duration: 0.24,
+          frequency,
+          endFrequency: frequency * 0.76,
+          type: "square",
+          gain: (0.043 - index * 0.009) * volume,
+        });
+      });
+    }
+
     function soundInvalid(voice, volume) {
       const now = voice.startAt;
       [138, 116].forEach((frequency, index) => {
@@ -1680,7 +1962,11 @@
       if (!policy) return false;
       const voice = beginVoice(normalized, policy, opts);
       if (!voice) return false;
-      const volumeLimit = /^commander-/.test(normalized) ? 0.9 : 1.35;
+      const volumeLimit = TACTICAL_SOUND_NAMES.has(normalized)
+        ? 0.88
+        : /^commander-/.test(normalized)
+          ? 0.9
+          : 1.35;
       const volume = clamp(opts.volume == null ? 1 : opts.volume, 0, volumeLimit);
       const pitch = clamp(opts.pitch == null ? 1 : opts.pitch, 0.72, 1.35);
       const strength = clamp(opts.strength == null ? opts.amount || 3 : opts.strength, 1, 12);
@@ -1731,6 +2017,19 @@
         else if (normalized === "commander-nomad") {
           soundCommanderNomad(voice, volume);
         }
+        else if (normalized === "formation-place") soundFormationPlace(voice, volume);
+        else if (normalized === "formation-block") soundFormationBlock(voice, volume);
+        else if (normalized === "link-brotherhood") soundLinkBrotherhood(voice, volume);
+        else if (normalized === "link-strategy") soundLinkStrategy(voice, volume);
+        else if (normalized === "link-kindle") soundLinkKindle(voice, volume);
+        else if (normalized === "link-raid") soundLinkRaid(voice, volume);
+        else if (normalized === "duel-start") soundDuelStart(voice, volume);
+        else if (normalized === "duel-hit") soundDuelHit(voice, volume);
+        else if (normalized === "status-burn") soundStatusBurn(voice, volume);
+        else if (normalized === "status-counter") soundStatusCounter(voice, volume);
+        else if (normalized === "status-intimidate") soundStatusIntimidate(voice, volume);
+        else if (normalized === "status-empty-fort") soundStatusEmptyFort(voice, volume);
+        else if (normalized === "status-raid") soundStatusRaid(voice, volume);
         else if (normalized === "invalid") soundInvalid(voice, volume);
       } catch {
         disposeVoice(voice, true);
@@ -2078,6 +2377,7 @@
 
     function semanticPriority(type) {
       if (type === "game:end") return 6;
+      if (/^(formation:|faction:link|duel:|status:)/.test(type)) return 5;
       if (/^commander:/.test(type)) return 5;
       if (type === "card:play") return 5;
       if (type === "attack:start" || type === "attack:hit") return 4;
@@ -2097,6 +2397,40 @@
       return data && (data.actor || data.side) === "player" ? 0.88 : 0.76;
     }
 
+    function tacticalVolume(data) {
+      return data && (data.actor || data.side) === "player" ? 0.8 : 0.7;
+    }
+
+    function playTactical(name, data, options) {
+      const now = currentTime();
+      const lastAt = tacticalEventTimes.get(name);
+      if (
+        lastAt != null &&
+        now - lastAt < TACTICAL_EVENT_DEDUPE_SECONDS
+      ) {
+        return true;
+      }
+      const played = play(name, {
+        volume: tacticalVolume(data),
+        pan: actorPan(data),
+        ...(options || {}),
+      });
+      if (played) tacticalEventTimes.set(name, now);
+      return played;
+    }
+
+    function rememberTacticalAbility(op) {
+      tacticalEventTimes.set(`ability:${String(op || "")}`, currentTime());
+    }
+
+    function recentlyPlayedTacticalAbility(op) {
+      const playedAt = tacticalEventTimes.get(`ability:${String(op || "")}`);
+      return (
+        playedAt != null &&
+        currentTime() - playedAt <= EFFECT_RESULT_DEDUPE_SECONDS
+      );
+    }
+
     function resetMatchAudio() {
       activeVoices.forEach((voice) => disposeVoice(voice, true));
       activeVoices.clear();
@@ -2104,6 +2438,7 @@
       attackRecords.clear();
       effectCueHistory.clear();
       effectDamageMerges.clear();
+      tacticalEventTimes.clear();
       activeAttack = null;
       attackSequence = 0;
       pendingFinale = null;
@@ -2169,9 +2504,61 @@
             pitch: data.actor === "player" ? 1.03 : 0.9,
           });
         case "card:play":
+          if (
+            tacticalEventTimes.has("formation-place") &&
+            currentTime() - tacticalEventTimes.get("formation-place") <=
+              EFFECT_RESULT_DEDUPE_SECONDS
+          ) {
+            return true;
+          }
           return play("play", {
             volume: data.actor === "player" ? 1 : 0.88,
             pitch: pitchForFaction(data.card),
+          });
+        case "formation:place":
+          return playTactical("formation-place", data);
+        case "formation:block":
+          return playTactical("formation-block", data);
+        case "faction:link": {
+          const linkSounds = {
+            brotherhood: "link-brotherhood",
+            strategy: "link-strategy",
+            kindle: "link-kindle",
+            raid: "link-raid",
+          };
+          const soundName = linkSounds[String(data.linkKind || "").toLowerCase()];
+          if (!soundName) return false;
+          rememberTacticalAbility("faction_link");
+          return playTactical(soundName, data, { delay: 0.08 });
+        }
+        case "duel:start":
+          rememberTacticalAbility("duel_target");
+          return playTactical("duel-start", data);
+        case "duel:hit":
+          rememberTacticalAbility("duel_target");
+          return playTactical("duel-hit", data, { delay: 0.22, volume: 0.82 });
+        case "status:burn":
+          rememberTacticalAbility(
+            data.phase === "applied" ? "apply_burning_all" : "burning",
+          );
+          return playTactical("status-burn", data, {
+            volume: data.phase === "tick" ? 0.72 : 0.8,
+          });
+        case "status:counter":
+          rememberTacticalAbility("patience_counter");
+          return playTactical("status-counter", data);
+        case "status:intimidate":
+          rememberTacticalAbility("weaken_enemy_front");
+          return playTactical("status-intimidate", data);
+        case "status:empty-fort":
+          rememberTacticalAbility("empty_fort");
+          return playTactical("status-empty-fort", data, {
+            volume: data.phase === "triggered" ? 0.84 : 0.7,
+          });
+        case "status:raid":
+          rememberTacticalAbility("faction_link");
+          return playTactical("status-raid", data, {
+            volume: data.phase === "active" ? 0.8 : 0.7,
           });
         case "commander:power": {
           const commanderId = String(data.commanderId || "").toLowerCase();
@@ -2318,6 +2705,7 @@
           });
         case "effect:trigger":
           {
+            if (recentlyPlayedTacticalAbility(data.op)) return true;
             const resultPlayed = playEffectResult(data);
             if (resultPlayed != null) return resultPlayed;
           }
@@ -2337,6 +2725,12 @@
         case "game:end":
           return scheduleFinale(data.winner);
         case "action:invalid":
+          if (
+            data.blockedByFormation ||
+            /formation|front_protects_rear/.test(String(data.reason || ""))
+          ) {
+            return playTactical("formation-block", data);
+          }
           if (
             data.blockedByGuard ||
             /guard|수호/i.test(String(data.reason || ""))
@@ -2384,6 +2778,7 @@
       attackRecords.clear();
       effectCueHistory.clear();
       effectDamageMerges.clear();
+      tacticalEventTimes.clear();
       activeAttack = null;
       pendingFinale = null;
       pendingSemanticEvent = null;
@@ -2432,6 +2827,7 @@
           pendingAttacks: attackRecords.size,
           effectCueRecords: effectCueHistory.size,
           effectDamageMerges: effectDamageMerges.size,
+          tacticalEventRecords: tacticalEventTimes.size,
           pendingFinale,
           pendingSemanticEvent: pendingSemanticEvent
             ? pendingSemanticEvent.type

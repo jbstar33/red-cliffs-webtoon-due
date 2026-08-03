@@ -8,7 +8,8 @@
   const REPLY_PLAN_LIMIT = 6;
   const REPLY_COMBAT_NODE_LIMIT = 40;
   const REPLY_DISRUPTION_NODE_LIMIT = 48;
-  const FULL_SIMULATION_TARGET = 2;
+  const FULL_SIMULATION_TARGET = 4;
+  const BOARD_LIMIT = 6;
   const COMMANDER_POWER_ACTION = "USE_COMMANDER_POWER";
 
   function finite(value, fallback) {
@@ -31,6 +32,13 @@
     return hash >>> 0;
   }
 
+  function mixUint32(value) {
+    let mixed = (Number(value) >>> 0) + 0x9e3779b9;
+    mixed = Math.imul(mixed ^ (mixed >>> 16), 0x21f0aaad);
+    mixed = Math.imul(mixed ^ (mixed >>> 15), 0x735a2d97);
+    return (mixed ^ (mixed >>> 15)) >>> 0;
+  }
+
   function resolveSalt(source) {
     if (typeof source === "function") {
       return Math.floor(Math.max(0, Math.min(0.999999999, finite(source(), 0.5))) * 4294967296) >>> 0;
@@ -49,6 +57,24 @@
   }
 
   function actionKey(action) {
+    if (!action || typeof action !== "object") return "invalid";
+    const target = action.target || {};
+    const placement = action.placement || {};
+    return [
+      action.type || "",
+      action.side || "",
+      action.powerId || action.commanderPowerId || action.commanderId || "",
+      Number.isInteger(Number(action.handIndex)) ? Number(action.handIndex) : "",
+      Number.isInteger(Number(action.attackerIndex)) ? Number(action.attackerIndex) : "",
+      target.zone || "",
+      target.side || "",
+      Number.isInteger(Number(target.index)) ? Number(target.index) : "",
+      placement.row || "",
+      Number.isInteger(Number(placement.slot)) ? Number(placement.slot) : "",
+    ].join("|");
+  }
+
+  function strategicActionKey(action) {
     if (!action || typeof action !== "object") return "invalid";
     const target = action.target || {};
     return [
@@ -117,6 +143,7 @@
         finite(hero.armor, 0),
         finite(hero.mana, 0),
         finite(hero.maxMana, 0),
+        finite(hero.emptyFortCharges, 0),
       );
       parts.push("commander", ...commanderPublicState(state, side));
       const hand = (state.hands && state.hands[side]) || [];
@@ -143,6 +170,16 @@
           minion.attackLockPending ? 1 : 0,
           minion.attackLockedThisTurn ? 1 : 0,
           minion.canAttack ? finite(minion.attacksLeft, 1) : 0,
+          minion.row || "",
+          Number.isInteger(Number(minion.slot)) ? Number(minion.slot) : "",
+          finite(minion.burning, 0),
+          finite(minion.attackPenalty, 0),
+          minion.attackPenaltyUntil || "",
+          finite(minion.storedCounter, 0),
+          minion.emptyFort ? 1 : 0,
+          minion.secondAttackPenalty ? 1 : 0,
+          finite(minion.maxAttacksPerTurn, 1),
+          finite(minion.attacksMadeThisTurn, 0),
         );
       });
       parts.push("//");
@@ -163,11 +200,43 @@
   }
 
   function hasSnipe(entity) {
-    return Boolean(entity && keywordList(entity).includes("저격"));
+    return Boolean(
+      entity &&
+        (keywordList(entity).includes("저격") || keywordList(entity).includes("돌파")),
+    );
   }
 
   function abilitiesOf(entity) {
     return entity && Array.isArray(entity.abilities) ? entity.abilities : [];
+  }
+
+  function normalizeFaction(entity) {
+    const value = String((entity && entity.faction) || entity || "").trim().toLowerCase();
+    if (value === "촉" || value === "shu") return "shu";
+    if (value === "위" || value === "wei") return "wei";
+    if (value === "오" || value === "wu") return "wu";
+    if (["군웅", "남만", "이민족", "qun", "nanman", "nomad"].includes(value)) {
+      return "nomad";
+    }
+    return value;
+  }
+
+  function rowOf(entity) {
+    return entity && (entity.row === "front" || entity.row === "rear")
+      ? entity.row
+      : null;
+  }
+
+  function isStrategist(entity) {
+    const role = String((entity && entity.role) || "");
+    const id = entityId(entity);
+    return (
+      role.includes("책사") ||
+      role.includes("도독") ||
+      id === "shu_zhuge_liang" ||
+      id === "wei_sima_yi" ||
+      id === "wu_zhou_yu"
+    );
   }
 
   const FINISHER_IDS = new Set([
@@ -302,7 +371,7 @@
   function handBurstPotential(state, side) {
     const hero = (state.heroes && state.heroes[side]) || {};
     const mana = Math.max(0, Math.floor(finite(hero.mana, 0)));
-    const boardSlots = Math.max(0, 5 - boardOf(state, side).length);
+    const boardSlots = Math.max(0, BOARD_LIMIT - boardOf(state, side).length);
     if (!mana || !boardSlots) return 0;
     const cards = handOf(state, side);
     const table = Array.from({ length: mana + 1 }, () =>
@@ -372,7 +441,7 @@
         finite(hero.maxMana, 0) + (state.turn === AI_SIDE ? 1 : 0),
       ))),
     );
-    const slots = Math.max(0, 5 - boardOf(state, PLAYER_SIDE).length);
+    const slots = Math.max(0, BOARD_LIMIT - boardOf(state, PLAYER_SIDE).length);
     const hiddenHandCount = handOf(state, PLAYER_SIDE).length;
     const plans = [{
       cost: 0,
@@ -702,10 +771,19 @@
   function shouldSearchReplies(state, legalActions) {
     const aiHero = state.heroes && state.heroes.ai;
     const playerHero = state.heroes && state.heroes.player;
-    if (effectiveHealth(aiHero) <= 16 || effectiveHealth(playerHero) <= 16) return true;
-    if (enemyGuards(state, AI_SIDE).length || enemyGuards(state, PLAYER_SIDE).length) return true;
-    if (futureBoardDamage(state, PLAYER_SIDE) >= effectiveHealth(aiHero) - 5) return true;
-    if (futureBoardDamage(state, AI_SIDE) >= effectiveHealth(playerHero) - 5) return true;
+    const aiHealth = effectiveHealth(aiHero);
+    const playerHealth = effectiveHealth(playerHero);
+    const enemyThreat = futureBoardDamage(state, PLAYER_SIDE);
+    const friendlyThreat = futureBoardDamage(state, AI_SIDE);
+    if (aiHealth <= 12 || playerHealth <= 8) return true;
+    if (enemyThreat >= aiHealth - 4) return true;
+    if (friendlyThreat >= playerHealth - 4) return true;
+    if (
+      (enemyGuards(state, AI_SIDE).length || enemyGuards(state, PLAYER_SIDE).length) &&
+      (aiHealth <= 18 || playerHealth <= 14)
+    ) {
+      return true;
+    }
     const hero = (state.heroes && state.heroes.ai) || {};
     const aiHand = handOf(state, AI_SIDE);
     const crowdedPivot =
@@ -783,7 +861,7 @@
 
   function bestCurvePlan(state, side, manaBudget) {
     const mana = Math.max(0, Math.min(10, Math.floor(finite(manaBudget, 0))));
-    const boardSlots = Math.max(0, 5 - boardOf(state, side).length);
+    const boardSlots = Math.max(0, BOARD_LIMIT - boardOf(state, side).length);
     if (!mana || !boardSlots) return 0;
     const table = Array.from({ length: mana + 1 }, () =>
       Array.from({ length: boardSlots + 1 }, () => -Infinity),
@@ -871,6 +949,12 @@
       steal_enemy_minion: 4.6,
       grant_all_allies_armor: 2.4,
       steal_enemy_minion_max_cost: 3.8,
+      duel_target: 4.4,
+      weaken_enemy_front: 3.2,
+      empty_fort: 3.8,
+      patience_counter: 3.1,
+      apply_burning_all: 4.3,
+      faction_link: 2.2,
     };
     let value = (values[ability.op] || 0.8) * amount;
     if (ability.attack || ability.health) {
@@ -889,6 +973,26 @@
     if (hasShield(minion)) value += 2.6 + attack * 0.18;
     if (hasGuard(minion)) value += 1.7 + health * 0.16;
     if (minion.canAttack && finite(minion.attacksLeft, 0) > 0) value += attack * 0.38;
+    const burning = Math.max(0, finite(minion.burning, 0));
+    if (burning) {
+      value -= Math.min(health, burning) * 1.08;
+      if (burning >= health) value -= 3.6 + attack * 0.55;
+    }
+    if (minion.attackLockPending || minion.attackLockedThisTurn) {
+      value -= attack * 0.72 + 1.1;
+    }
+    value -= Math.max(0, finite(minion.attackPenalty, 0)) * 0.62;
+    value += Math.max(0, finite(minion.storedCounter, 0)) * 1.12;
+    const attacksPerTurn = Math.max(1, finite(minion.maxAttacksPerTurn, 1));
+    if (attacksPerTurn > 1) value += attack * 0.46;
+    if (minion.secondAttackPenalty) {
+      const selfDamage = Math.max(
+        0,
+        finite(minion.combat && minion.combat.secondAttackSelfDamage, 2),
+      );
+      value -= Math.min(health, selfDamage) * 0.72;
+      if (health <= selfDamage) value -= 3.8;
+    }
     abilitiesOf(minion).forEach((ability) => {
       if (ability.trigger === "onDeath") value += abilityValue(ability) * 0.38;
     });
@@ -923,6 +1027,15 @@
     board.forEach((minion) => {
       value += minionValue(minion);
     });
+    const hasFront = board.some((minion) => rowOf(minion) === "front");
+    board.forEach((minion) => {
+      const row = rowOf(minion);
+      if (hasGuard(minion)) value += row === "front" ? 1.5 : row === "rear" ? -1.4 : 0;
+      if (row === "rear" && hasFront) {
+        value += isStrategist(minion) ? 1.4 : healthOf(minion) <= 3 ? 0.85 : 0.3;
+      }
+    });
+    value += Math.max(0, finite(hero.emptyFortCharges, 0)) * 5.4;
     if (side === AI_SIDE) {
       hand.forEach((card) => {
         value += handCardValue(card) * 0.22;
@@ -1215,18 +1328,42 @@
     const attack = attackOf(attacker);
     const attackerId = entityId(attacker);
     const attackerDeathValue = deathrattleValue(attacker, state);
+    const guards = enemyGuards(state, PLAYER_SIDE);
+    if (
+      guards.length &&
+      (action.target.zone !== "board" || action.target.side !== PLAYER_SIDE || !hasGuard(target))
+    ) {
+      return -WIN_SCORE * 0.6;
+    }
+    if (
+      !guards.length &&
+      action.target.zone === "board" &&
+      rowOf(target) === "rear" &&
+      boardOf(state, PLAYER_SIDE).some((minion) => rowOf(minion) === "front") &&
+      !hasSnipe(attacker)
+    ) {
+      return -WIN_SCORE * 0.6;
+    }
+    const selfDamage = Math.max(
+      0,
+      finite(
+        attacker.combat && attacker.combat.secondAttackSelfDamage,
+        keywordList(attacker).includes("천하무쌍") ? 2 : 0,
+      ),
+    );
+    const isSecondAttack =
+      selfDamage > 0 && finite(attacker.attacksMadeThisTurn, 0) >= 1;
+    const recoilValue = isSecondAttack
+      ? Math.min(healthOf(attacker), selfDamage) * 1.3 +
+        (healthOf(attacker) <= selfDamage ? 14 + minionValue(attacker) * 1.1 : 0)
+      : 0;
 
     if (action.target.zone === "hero") {
       const health = effectiveHealth(target);
       if (attack >= health) return WIN_SCORE * 0.72;
       const enemyBoard = boardOf(state, PLAYER_SIDE);
-      const bypassesGuard = hasSnipe(attacker) && enemyGuards(state, PLAYER_SIDE).length > 0;
       const totalReadyDamage = readyDamage(state, AI_SIDE);
-      let value = attack * 1.05;
-      if (bypassesGuard) {
-        value += attack * 1.35;
-        if (health <= attack * 2) value += 12;
-      }
+      let value = attack * 1.05 - recoilValue;
       if (!enemyBoard.length) value += 2.2;
       if (totalReadyDamage >= health) value += 80 + attack * 0.5;
       if (health <= 10) value += (11 - health) * 0.6;
@@ -1243,7 +1380,7 @@
     const removesShield = hasShield(target);
     const killsTarget = !removesShield && attack >= targetHealth;
     const attackerSurvives = hasShield(attacker) || targetAttack < attackerHealth;
-    let value = hasGuard(target) ? 6.2 : 0;
+    let value = (hasGuard(target) ? 6.2 : 0) - recoilValue;
     if (removesShield) {
       const otherReadyAttackers = board
         .filter((minion, index) => index !== Number(action.attackerIndex) && isReady(minion))
@@ -1272,6 +1409,9 @@
     }
     if (FINISHER_IDS.has(attackerId) && !killsTarget && !removesShield) value -= 6.5;
     if (attackerId === "shu_zhao_yun" && hasShield(attacker) && attackerSurvives) value += 1.8;
+    if (attackerId === "qun_lu_bu" && isSecondAttack && (killsTarget || hasShield(target))) {
+      value += Math.min(7, minionValue(target) * 0.28);
+    }
     if (targetAttack >= 5 && killsTarget) value += targetAttack * 0.42;
     return value;
   }
@@ -1338,6 +1478,22 @@
         const targetCost = Math.max(0, finite(entity.currentCost, finite(entity.cost, 0)));
         if (target.side !== PLAYER_SIDE || targetCost > maxCost) value -= 60;
         else value += 6 + minionValue(entity) * 1.28;
+      } else if (ability.op === "duel_target") {
+        if (target.zone !== "board" || target.side !== PLAYER_SIDE) {
+          value -= 80;
+        } else {
+          const sourceAttack = attackOf(card);
+          const sourceHealth = healthOf(card);
+          const targetAttack = attackOf(entity);
+          const targetHealth = healthOf(entity);
+          const targetDies = !hasShield(entity) && sourceAttack >= targetHealth;
+          const sourceSurvives = hasShield(card) || targetAttack < sourceHealth;
+          if (targetDies) value += 9 + minionValue(entity) * 0.82;
+          else value += Math.min(sourceAttack, targetHealth) * 0.38;
+          if (sourceSurvives) value += 4.2 + (targetDies ? sourceAttack * 0.72 : 0);
+          else value -= 8 + minionValue(card) * 0.52;
+          if (targetDies && sourceSurvives) value += 5.5;
+        }
       }
     });
     if (
@@ -1353,6 +1509,91 @@
       value += cardId === "shu_huang_zhong" ? 3 : 2;
     }
     return value;
+  }
+
+  function formationPlayValue(state, card, action) {
+    const placement = action && action.placement;
+    if (!placement) return 0;
+    const row = placement.row;
+    const slot = Number(placement.slot);
+    if ((row !== "front" && row !== "rear") || !Number.isInteger(slot) || slot < 0 || slot > 2) {
+      return -160;
+    }
+    const board = boardOf(state, AI_SIDE);
+    if (board.some((minion) => rowOf(minion) === row && Number(minion.slot) === slot)) {
+      return -120;
+    }
+
+    const id = entityId(card);
+    const health = healthOf(card);
+    const requiredRows = abilitiesOf(card)
+      .map((ability) => ability && ability.requiredRow)
+      .filter(Boolean);
+    let value = 0;
+    if (requiredRows.length) {
+      value += requiredRows.includes(row) ? 16 : -30;
+    }
+    if (hasGuard(card)) value += row === "front" ? 9 : -8;
+    if (health >= 6) value += row === "front" ? 3.4 : -0.7;
+    if (health <= 3) value += row === "rear" ? 3.2 : -1.2;
+    if (isStrategist(card)) value += row === "rear" ? 5.4 : -3.1;
+    if (abilityByOp(card, "apply_burning_all")) value += row === "rear" ? 2.6 : -1.2;
+    if (id === "shu_zhuge_liang") {
+      const canOpenEmptyFort = board.length === 0 && row === "rear";
+      value += canOpenEmptyFort ? 13 : row === "front" ? -8 : 0;
+    } else if (id === "wu_gan_ning") {
+      value += row === "rear" ? 10 : -7;
+    } else if (id === "wei_sima_yi" || id === "wu_zhou_yu") {
+      value += row === "rear" ? 3.5 : -2;
+    } else if (id === "qun_lu_bu") {
+      value += row === "front" ? 4.5 : -1.4;
+    }
+    const frontCount = board.filter((minion) => rowOf(minion) === "front").length;
+    const rearCount = board.filter((minion) => rowOf(minion) === "rear").length;
+    if (row === "rear" && frontCount > 0) value += 1.3;
+    if (row === "rear" && frontCount === 0 && !requiredRows.includes("rear")) value -= 1.2;
+    if (row === "front" && frontCount === 0 && rearCount > 0) value += 2.2;
+    if (slot === 1 && (hasGuard(card) || isStrategist(card))) value += 0.35;
+    return value;
+  }
+
+  function factionLinkPlayValue(state, card, ability) {
+    const friendlyBoard = boardOf(state, AI_SIDE);
+    const enemyBoard = boardOf(state, PLAYER_SIDE);
+    const faction = normalizeFaction(card);
+    const linked = friendlyBoard.filter((minion) => normalizeFaction(minion) === faction);
+    if (!faction || !linked.length) return -0.35;
+    if (ability.linkKind === "brotherhood") {
+      const lowest = linked.reduce((best, minion) =>
+        !best || healthOf(minion) < healthOf(best) ? minion : best, null);
+      return 3.2 + (lowest && healthOf(lowest) <= 2 ? 1.8 : 0);
+    }
+    if (ability.linkKind === "strategy") {
+      const eligible = handOf(state, AI_SIDE).filter(
+        (held) =>
+          held !== card &&
+          (!held.instanceId || !card.instanceId || held.instanceId !== card.instanceId) &&
+          finite(held.currentCost, held.cost) > 1,
+      );
+      return eligible.length
+        ? 3.1 + Math.min(2.2, Math.max.apply(null, eligible.map((held) => finite(held.currentCost, held.cost))) * 0.22)
+        : 0.5;
+    }
+    if (ability.linkKind === "kindle") {
+      if (!enemyBoard.length) return 1.8;
+      const bestBurn = Math.max.apply(null, enemyBoard.map((minion) => {
+        const existing = Math.max(0, finite(minion.burning, 0));
+        return 1.7 + attackOf(minion) * 0.16 + (healthOf(minion) <= existing + 1 ? 3.4 : 0);
+      }));
+      return bestBurn;
+    }
+    if (ability.linkKind === "raid") {
+      if (!enemyBoard.length) return 1.4;
+      const threat = Math.max.apply(null, enemyBoard.map((minion) =>
+        minion.attackLockPending || minion.attackLockedThisTurn ? 0 : attackOf(minion)));
+      return 2.2 + threat * 0.72;
+    }
+    return 1.2;
   }
 
   function playTactics(state, action, legalActions) {
@@ -1372,7 +1613,7 @@
       playableActions.map((candidate) => entityId(hand[Number(candidate.handIndex)])),
     );
 
-    let value = cost * 0.42;
+    let value = cost * 0.42 + formationPlayValue(state, card, action);
     if (remaining === 0) value += 2.3;
     else if (remaining === 1) value += 0.8;
     if (
@@ -1426,7 +1667,7 @@
       } else if (ability.op === "buff_adjacent") {
         value += Math.min(2, friendlyBoard.length) * 1.25;
       } else if (ability.op === "summon_token") {
-        const tokenSlots = Math.max(0, 4 - friendlyBoard.length);
+        const tokenSlots = Math.max(0, BOARD_LIMIT - 1 - friendlyBoard.length);
         const summoned = Math.min(tokenSlots, Math.max(1, finite(ability.count, 1)));
         value += summoned * 2;
         if (!summoned) value -= 12;
@@ -1460,6 +1701,32 @@
               0,
             )
           : -8;
+      } else if (ability.op === "weaken_enemy_front") {
+        const front = enemyBoard.filter((minion) => rowOf(minion) === "front");
+        value += front.reduce(
+          (sum, minion) => sum + Math.min(amount, attackOf(minion)) * 1.45,
+          0,
+        );
+        if (!front.length) value -= 2.8;
+      } else if (ability.op === "empty_fort") {
+        const emptyFortReady =
+          friendlyBoard.length === 0 && action.placement && action.placement.row === "rear";
+        value += emptyFortReady ? 11 : -7.5;
+      } else if (ability.op === "patience_counter") {
+        const incoming = enemyBoard.reduce(
+          (sum, minion) => sum + (isReady(minion) ? attackOf(minion) : attackOf(minion) * 0.35),
+          0,
+        );
+        value += Math.min(Math.max(0, finite(ability.maxStored, 2)), incoming) * 1.6;
+      } else if (ability.op === "apply_burning_all") {
+        if (!enemyBoard.length) value -= 8;
+        enemyBoard.forEach((minion) => {
+          const burning = Math.max(0, finite(minion.burning, 0));
+          value += amount * (1.35 + attackOf(minion) * 0.12);
+          if (!hasShield(minion) && healthOf(minion) <= burning + amount) value += 4.8;
+        });
+      } else if (ability.op === "faction_link") {
+        value += factionLinkPlayValue(state, card, ability);
       }
     });
 
@@ -1638,7 +1905,68 @@
     });
   }
 
-  function boundedSimulationCandidates(state, legalActions, salt) {
+  function highConfidenceTacticalAction(state, action) {
+    if (!action) return false;
+    if (action.type === "attack" && action.target && action.target.zone === "board") {
+      const attacker = boardOf(state, AI_SIDE)[Number(action.attackerIndex)];
+      const target = targetEntity(state, action.target);
+      if (!attacker || !target || hasShield(target)) return false;
+      const cleanKill = attackOf(attacker) >= healthOf(target) &&
+        (hasShield(attacker) || attackOf(target) < healthOf(attacker));
+      return cleanKill && (attackOf(target) >= 4 || hasGuard(target));
+    }
+    if (action.type !== "playCard") return false;
+    const card = handOf(state, AI_SIDE)[Number(action.handIndex)];
+    if (!card) return false;
+    return abilitiesOf(card).some((ability) => {
+      if (!ability || ability.trigger !== "onPlay") return false;
+      if (ability.op === "duel_target" && action.target) {
+        const target = targetEntity(state, action.target);
+        return target && attackOf(card) >= healthOf(target) && attackOf(target) < healthOf(card);
+      }
+      if (ability.op === "damage_target" && action.target?.zone === "board") {
+        const target = targetEntity(state, action.target);
+        return target && !hasShield(target) && finite(ability.amount, 0) >= healthOf(target);
+      }
+      if (ability.op === "grant_all_allies_armor") return boardOf(state, AI_SIDE).length >= 2;
+      if (ability.op === "apply_burning_all") return boardOf(state, PLAYER_SIDE).length >= 3;
+      return false;
+    });
+  }
+
+  function plausibleAction(state, action) {
+    if (!action || typeof action !== "object" || action.side !== AI_SIDE) return false;
+    if (action.type !== "attack") return true;
+    const attacker = boardOf(state, AI_SIDE)[Number(action.attackerIndex)];
+    const target = targetEntity(state, action.target);
+    if (!attacker || !target || !isReady(attacker) || action.target.side !== PLAYER_SIDE) {
+      return false;
+    }
+    const guards = enemyGuards(state, PLAYER_SIDE);
+    if (guards.length) {
+      return action.target.zone === "board" && hasGuard(target);
+    }
+    if (
+      action.target.zone === "board" &&
+      rowOf(target) === "rear" &&
+      boardOf(state, PLAYER_SIDE).some((minion) => rowOf(minion) === "front") &&
+      !hasSnipe(attacker)
+    ) {
+      return false;
+    }
+    return action.target.zone === "hero" || action.target.zone === "board";
+  }
+
+  function uniqueActions(actions) {
+    const unique = new Map();
+    actions.forEach((action) => {
+      const key = actionKey(action);
+      if (!unique.has(key)) unique.set(key, action);
+    });
+    return Array.from(unique.values());
+  }
+
+  function boundedSimulationCandidates(state, legalActions, salt, broadVariation) {
     if (legalActions.length <= FULL_SIMULATION_TARGET) return legalActions.slice();
     const ranked = legalActions
       .map((action) => {
@@ -1646,6 +1974,7 @@
         return {
           action,
           key,
+          strategicKey: strategicActionKey(action),
           score: tacticalScore(state, action, legalActions),
           tie: hashText(`${salt}|cheap|${key}`),
         };
@@ -1660,7 +1989,9 @@
     const selected = new Map();
     const add = (candidate) => {
       if (candidate && selected.size < FULL_SIMULATION_TARGET) {
-        selected.set(candidate.key, candidate.action);
+        if (!selected.has(candidate.strategicKey)) {
+          selected.set(candidate.strategicKey, candidate.action);
+        }
       }
     };
     const lethal = ranked.find((candidate) => immediateLethalCandidate(state, candidate.action));
@@ -1671,6 +2002,20 @@
         if (candidate.action.type !== "playCard") return false;
         return hasGuard(handOf(state, AI_SIDE)[Number(candidate.action.handIndex)]);
       }));
+    }
+    const distinct = [];
+    const seenStrategic = new Set();
+    ranked.forEach((candidate) => {
+      if (seenStrategic.has(candidate.strategicKey)) return;
+      seenStrategic.add(candidate.strategicKey);
+      distinct.push(candidate);
+    });
+    add(distinct[0]);
+    if (!lethal && selected.size < FULL_SIMULATION_TARGET) {
+      const firstExplorationRank = broadVariation ? 4 : 3;
+      const secondExplorationRank = broadVariation ? 8 : 6;
+      add(distinct[Math.min(firstExplorationRank, distinct.length - 1)]);
+      add(distinct[Math.min(secondExplorationRank, distinct.length - 1)]);
     }
     ranked.forEach((candidate) => {
       if (selected.size < FULL_SIMULATION_TARGET) add(candidate);
@@ -1751,6 +2096,20 @@
     const config = configuration || {};
     const salt = resolveSalt(config.rng);
     const replySearchEnabled = config.replySearch !== false;
+    // A match keeps one deterministic temperament from opening hand to lethal.
+    // Cautious strategists compare wider formation/curve lines; aggressive ones
+    // stay closer to the top tactical line unless comfortably ahead. Both preserve
+    // lethal and forced defense. mixUint32 removes string-prefix bias from seed names.
+    const strategyTemperament =
+      mixUint32(salt ^ 0xa511e9b3) / 4294967296 < 0.7
+        ? "cautious"
+        : "aggressive";
+    const broadVariation = strategyTemperament === "cautious";
+
+    function usesCautiousLine(state) {
+      const position = stateScore(state);
+      return position >= -7 && (broadVariation || position >= 4);
+    }
     const repeatedChoices = new Map();
 
     function earlyTurn(state) {
@@ -1761,30 +2120,56 @@
       return finite(state && state.turnNumber, 99) <= 8;
     }
 
-    function selectEarlyCandidate(ranked, signature, history) {
+    function selectStrategicCandidate(ranked, state, signature, history) {
       const lethal = ranked.find(
         (candidate) => candidate.valid && candidate.lethal && !history.has(candidate.key),
       );
       if (lethal) return lethal;
 
-      const fresh = ranked.filter(
-        (candidate) =>
-          candidate.valid &&
-          candidate.action.type !== "endTurn" &&
-          !history.has(candidate.key),
+      const eligible = ranked.filter(
+        (candidate) => candidate.valid && !history.has(candidate.key),
       );
-      if (!fresh.length) return null;
-      const bestScore = fresh[0].score;
-      const pool = fresh
-        .filter((candidate) => candidate.score >= bestScore - 3.5)
-        .slice(0, 3);
-      if (pool.length <= 1) return pool[0] || null;
+      const bestEndTurn = eligible.find((candidate) => candidate.action.type === "endTurn");
+      const bestActive = eligible.find((candidate) => candidate.action.type !== "endTurn");
+      if (bestEndTurn && (!bestActive || bestEndTurn.score > bestActive.score)) {
+        return bestEndTurn;
+      }
 
-      const roll = hashText(`${salt}|opening|${signature}`) / 4294967296;
-      if (pool.length === 2) return roll < 0.64 ? pool[0] : pool[1];
-      if (roll < 0.52) return pool[0];
-      if (roll < 0.82) return pool[1];
-      return pool[2];
+      const fresh = eligible.filter((candidate) => candidate.action.type !== "endTurn");
+      if (!fresh.length) return null;
+      const aiHero = state.heroes && state.heroes.ai;
+      const incoming = futureBoardDamage(state, PLAYER_SIDE);
+      if (incoming >= Math.max(1, effectiveHealth(aiHero) - 5)) {
+        const defense = fresh.find((candidate) =>
+          requiredDefenseCandidate(state, candidate.action));
+        if (defense) return defense;
+      }
+
+      const bestScore = fresh[0].score;
+      if (highConfidenceTacticalAction(state, fresh[0].action)) return fresh[0];
+      const cautiousDecision = usesCautiousLine(state);
+      const scoreWindow = earlyTurn(state) ? 22 : 38;
+      const pool = fresh
+        .filter((candidate) => candidate.score >= bestScore - scoreWindow)
+        .slice(0, 4);
+      if (pool.length <= 2) return pool[0] || null;
+      if (bestScore - pool[1].score >= 44) return pool[0];
+
+      const roll = hashText(`${salt}|variety|${signature}|${history.size}`) / 4294967296;
+      if (pool.length === 3) {
+        const firstCut = cautiousDecision ? 0.2 : 0.25;
+        const secondCut = cautiousDecision ? 0.5 : 0.58;
+        if (roll < firstCut) return pool[0];
+        if (roll < secondCut) return pool[1];
+        return pool[2];
+      }
+      const firstCut = cautiousDecision ? 0.1 : 0.2;
+      const secondCut = cautiousDecision ? 0.25 : 0.45;
+      const thirdCut = cautiousDecision ? 0.5 : 0.72;
+      if (roll < firstCut) return pool[0];
+      if (roll < secondCut) return pool[1];
+      if (roll < thirdCut) return pool[2];
+      return pool[3];
     }
 
     function chooseAction(context) {
@@ -1793,9 +2178,7 @@
       if (!state || state.phase === "ended" || state.turn !== AI_SIDE) return null;
 
       const legalActions = Array.isArray(request.legalActions)
-        ? request.legalActions.filter(
-            (action) => action && typeof action === "object" && action.side === AI_SIDE,
-          )
+        ? uniqueActions(request.legalActions.filter((action) => plausibleAction(state, action)))
         : [];
       if (!legalActions.length) return null;
 
@@ -1814,7 +2197,13 @@
         replySearchEnabled && shouldSearchReplies(state, legalActions)
           ? replyOutcome(state)
           : null;
-      const simulationActions = boundedSimulationCandidates(state, legalActions, salt);
+      const cautiousDecision = usesCautiousLine(state);
+      const simulationActions = boundedSimulationCandidates(
+        state,
+        legalActions,
+        salt,
+        cautiousDecision,
+      );
       const ranked = simulationActions
         .map((action) =>
           evaluateCandidate(request, state, action, legalActions, salt, replyBaseline),
@@ -1832,12 +2221,7 @@
             tie: hashText(`${salt}|${actionKey(legalEndTurn)}`),
           }
         : null);
-      const openingChoice = earlyTurn(state)
-        ? selectEarlyCandidate(ranked, signature, history)
-        : null;
-      const fresh =
-        openingChoice ||
-        ranked.find((candidate) => candidate.valid && !history.has(candidate.key));
+      const fresh = selectStrategicCandidate(ranked, state, signature, history);
       const selected =
         (endTurn && history.has(endTurn.key) ? endTurn : null) ||
         fresh ||

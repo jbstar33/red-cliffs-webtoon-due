@@ -17,6 +17,16 @@
     "effect:trigger": 820,
     "commander:power": 760,
     "commander:reflect": 680,
+    "formation:place": 420,
+    "formation:block": 360,
+    "faction:link": 780,
+    "duel:start": 720,
+    "duel:hit": 700,
+    "status:burn": 620,
+    "status:counter": 720,
+    "status:intimidate": 640,
+    "status:empty-fort": 760,
+    "status:raid": 620,
   });
   const FIZZLE_PRESENTATION_MS = 460;
   const REDUCED_MOTION_PRESENTATION_MS = 350;
@@ -318,6 +328,7 @@
         side,
         handIndex: action.handIndex,
         target: action.target,
+        placement: action.placement || null,
       };
     }
     if (type === "ATTACK") {
@@ -347,6 +358,7 @@
         action.side,
         action.handIndex,
         action.target || null,
+        action.placement || null,
       );
     }
     if (action.type === "attack") {

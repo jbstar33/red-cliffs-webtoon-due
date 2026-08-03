@@ -178,6 +178,11 @@ test("80 four-faction strategist PvE matches finish and exercise all 50 cards", 
 
   assert.ok(metrics.averageTurns >= 8, "matches end before strategic play develops");
   assert.ok(metrics.averageTurns <= 40, "matches drag on too long");
+  const aiWinRate = winners.ai / matches;
+  assert.ok(
+    aiWinRate >= 0.3 && aiWinRate <= 0.7,
+    `PvE strategist win rate ${(aiWinRate * 100).toFixed(1)}% is outside the 30-70% fun band`,
+  );
   console.log(JSON.stringify(metrics));
   assert.deepEqual(unplayedCards, [], "every card should appear in live play");
 });

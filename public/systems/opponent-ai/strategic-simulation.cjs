@@ -49,6 +49,23 @@ function actionKey(action) {
   return JSON.stringify(action);
 }
 
+function emptyRecord() {
+  return { games: 0, ai: 0, player: 0, draw: 0 };
+}
+
+function recordResult(table, key, winner) {
+  if (!table[key]) table[key] = emptyRecord();
+  table[key].games += 1;
+  table[key][winner || "draw"] += 1;
+}
+
+function withRates(table) {
+  return Object.fromEntries(Object.entries(table).map(([key, value]) => [key, {
+    ...value,
+    aiRate: Number((value.ai / Math.max(1, value.games)).toFixed(3)),
+  }]));
+}
+
 function simulateAction(game, action) {
   const copy = game.cloneForSimulation();
   const result = copy.applyAction(clone(action));
@@ -131,7 +148,9 @@ function recordChoice(metrics, state, action) {
   let key = action.type;
   if (action.type === "playCard") {
     const card = state.hands.ai[action.handIndex];
-    key += `:${card ? card.id : "missing"}:${action.target ? action.target.zone : "none"}`;
+    key += `:${card ? card.id : "missing"}:${action.target ? action.target.zone : "none"}:${
+      action.placement ? action.placement.row : "auto"
+    }`;
   } else if (action.type === "attack") {
     const attacker = state.boards.ai[action.attackerIndex];
     const target =
@@ -156,7 +175,7 @@ function recordChoice(metrics, state, action) {
 function runGame(index, metrics, options) {
   const settings = options || {};
   const aiFaction = FACTIONS[index % FACTIONS.length];
-  const playerFaction = FACTIONS[(index + 2) % FACTIONS.length];
+  const playerFaction = FACTIONS[Math.floor(index / FACTIONS.length) % FACTIONS.length];
   const game = rulesEngine.createGame({
     definitions,
     tokens: cardData.getTokens(),
@@ -217,6 +236,8 @@ function runGame(index, metrics, options) {
     if (side === "ai" && action.type === "playCard") {
       const card = state.hands.ai[action.handIndex];
       if (card) metrics.aiCardsPlayed.add(card.id);
+      const row = action.placement && action.placement.row;
+      if (row === "front" || row === "rear") metrics.aiPlacements[row] += 1;
     }
 
     const result = game.applyAction(action);
@@ -226,10 +247,19 @@ function runGame(index, metrics, options) {
   }
 
   const finalState = game.getState();
+  assert.strictEqual(
+    finalState.phase,
+    "ended",
+    `game ${index}: match must finish without a stall before ${actionCount} actions`,
+  );
   metrics.actions += actionCount;
   metrics.turns += finalState.turnNumber;
   metrics.games += 1;
   metrics.results[finalState.winner || "draw"] += 1;
+  recordResult(metrics.byAiFaction, aiFaction, finalState.winner);
+  recordResult(metrics.byPlayerFaction, playerFaction, finalState.winner);
+  recordResult(metrics.byMatchup, `${playerFaction}->${aiFaction}`, finalState.winner);
+  recordResult(metrics.byInitiative, "aiSecond", finalState.winner);
 }
 
 function createMetrics() {
@@ -244,6 +274,11 @@ function createMetrics() {
     maxDecisionSimulations: 0,
     illegalActions: 0,
     aiCardsPlayed: new Set(),
+    aiPlacements: { front: 0, rear: 0 },
+    byAiFaction: {},
+    byPlayerFaction: {},
+    byMatchup: {},
+    byInitiative: {},
     aiChoiceCounts: new Map(),
     aiCommanderPowers: { caocao: 0, liubei: 0, sunquan: 0, nomad: 0 },
     results: { player: 0, ai: 0, draw: 0 },
@@ -316,6 +351,26 @@ if (GAMES >= 100) {
     metrics.aiCommanderPowers.liubei,
     0,
     "Liu Bei passive must not emit USE_COMMANDER_POWER",
+  );
+  assert(
+    aiWinRate >= 0.3 && aiWinRate <= 0.7,
+    `AI calibrated win rate ${(aiWinRate * 100).toFixed(1)}% outside 30-70%`,
+  );
+  Object.entries(metrics.byAiFaction).forEach(([faction, record]) => {
+    const rate = record.ai / Math.max(1, record.games);
+    assert(
+      rate >= 0.1 && rate <= 0.9,
+      `${faction} AI faction win rate ${(rate * 100).toFixed(1)}% outside 10-90%`,
+    );
+  });
+  assert.strictEqual(
+    metrics.byInitiative.aiSecond?.games,
+    GAMES,
+    "single PvE rules always give the human player first action and AI second action",
+  );
+  assert(
+    metrics.aiPlacements.front > 0 && metrics.aiPlacements.rear > 0,
+    `AI must use both formation rows: ${JSON.stringify(metrics.aiPlacements)}`,
   );
 }
 assert(averageTurns >= 8 && averageTurns <= 45, `average turns ${averageTurns} outside 8-45`);
@@ -406,6 +461,12 @@ console.log(
     `AI ${metrics.results.ai} / player ${metrics.results.player} / draw ${metrics.results.draw}`,
     `AI win ${(aiWinRate * 100).toFixed(1)}%`,
     `powers ${JSON.stringify(metrics.aiCommanderPowers)}`,
+    `placements ${JSON.stringify(metrics.aiPlacements)}`,
+    `AI factions ${JSON.stringify(withRates(metrics.byAiFaction))}`,
+    `player factions ${JSON.stringify(withRates(metrics.byPlayerFaction))}`,
+    `matchups ${JSON.stringify(withRates(metrics.byMatchup))}`,
+    `initiative ${JSON.stringify(withRates(metrics.byInitiative))}`,
+    "Liu Bei power uses 0 (passive by design)",
     `diversity ${distinctChoices}/${choiceEntropy.toFixed(2)}b`,
     `decision ${averageDecisionMs.toFixed(3)}ms`,
     `p50/p95/max ${p50DecisionMs.toFixed(2)}/${p95DecisionMs.toFixed(2)}/${maxDecisionMs.toFixed(2)}ms`,

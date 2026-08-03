@@ -695,3 +695,14 @@ test("runtime gates production boot on faction selection and forwards commander 
   assert.match(source, /buildDeck\(seed,\s*selectedCommanderId\)/);
   assert.match(source, /buildDeck\(seed \^ 0xa53a9e77,\s*opponentCommanderId\)/);
 });
+
+test("runtime forwards formation placement without coupling board UI to rules", () => {
+  assert.match(source, /placement:\s*action\.placement \|\| null/);
+  assert.match(
+    source,
+    /targetGame\.playCard\([\s\S]*?action\.target \|\| null,[\s\S]*?action\.placement \|\| null/,
+  );
+  assert.match(source, /"formation:place":\s*420/);
+  assert.match(source, /"faction:link":\s*780/);
+  assert.match(source, /"status:empty-fort":\s*760/);
+});

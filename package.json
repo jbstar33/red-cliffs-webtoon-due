@@ -10,7 +10,7 @@
     "build": "node scripts/run-vinext.mjs build",
     "start": "node scripts/run-vinext.mjs start",
     "test": "npm run build && node --test public/game/runtime-timing.test.mjs tests/rendered-html.test.mjs tests/gameplay-integration.test.mjs tests/balance-simulation.test.mjs && npm run test:systems",
-    "test:systems": "node public/systems/card-data/test.mjs && node public/systems/rules-engine/test-rules.mjs && node --test public/systems/board-ui/board-ui.test.mjs && node public/systems/opponent-ai/mock-test.cjs && node public/systems/opponent-ai/commander-power-test.cjs && node public/systems/opponent-ai/commander-integration-test.cjs && node public/systems/opponent-ai/balance-test.cjs && node public/systems/opponent-ai/strategic-simulation.cjs && node public/systems/fx-animation/test.cjs && node public/systems/audio/test.cjs",
+    "test:systems": "node public/systems/card-data/test.mjs && node public/systems/rules-engine/test-rules.mjs && node --test public/systems/board-ui/board-ui.test.mjs && node public/systems/opponent-ai/mock-test.cjs && node public/systems/opponent-ai/formation-depth-test.cjs && node public/systems/opponent-ai/commander-power-test.cjs && node public/systems/opponent-ai/commander-integration-test.cjs && node public/systems/opponent-ai/balance-test.cjs && node public/systems/opponent-ai/strategic-simulation.cjs && node public/systems/fx-animation/test.cjs && node public/systems/audio/test.cjs",
     "lint": "eslint app public/game public/systems --ignore-pattern **/*test* --ignore-pattern **/*simulation* --max-warnings=0"
   },
   "dependencies": {

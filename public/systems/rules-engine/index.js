@@ -3,7 +3,9 @@
 
   const SIDES = ["player", "ai"];
   const OTHER_SIDE = { player: "ai", ai: "player" };
-  const BOARD_LIMIT = 5;
+  const BOARD_LIMIT = 6;
+  const FORMATION_ROWS = Object.freeze(["front", "rear"]);
+  const FORMATION_SLOTS = 3;
   const HAND_LIMIT = 10;
   const MAX_MANA = 10;
   const STARTING_HEALTH = 30;
@@ -203,6 +205,7 @@
           mana: 0,
           maxMana: 0,
           fatigue: 0,
+          emptyFortCharges: 0,
         };
       }
 
@@ -285,6 +288,9 @@
             board_full: "전장 가득 참",
             target_cost_exceeded: "대상 비용 초과",
             target_cost_below_minimum: "대상 비용 부족",
+            required_row_missing: "배치 조건 불충족",
+            requires_solo: "다른 아군이 있음",
+            faction_link_missing: "같은 진영 아군 없음",
             no_draw_requested: "뽑을 카드 없음",
             unsupported_op: "지원하지 않는 효과",
           };
@@ -349,6 +355,14 @@
             buff.health || 0
           }`;
         }
+        if (detail.op === "duel_target") return `${cardName}: 일기토 발동`;
+        if (detail.op === "weaken_enemy_front") return `${cardName}: 적 전열 공격력 약화`;
+        if (detail.op === "empty_fort") return `${cardName}: 공성계 준비`;
+        if (detail.op === "patience_counter") return `${cardName}: 반계 준비`;
+        if (detail.op === "apply_burning_all") return `${cardName}: 적 전장에 화상 부여`;
+        if (detail.op === "faction_link") {
+          return `${cardName}: ${result.linkName || "진영"} 연계 발동`;
+        }
         return `${cardName}: 효과 해결`;
       }
 
@@ -369,6 +383,16 @@
           "commander:power": "지휘관 능력을 사용했습니다.",
           "commander:reflect": "유비의 반사가 공격자에게 되돌아갔습니다.",
           "commander:lock": "유목 군주의 봉쇄가 적용되었습니다.",
+          "formation:place": "장수가 진형에 배치되었습니다.",
+          "formation:block": "전열이 후열을 보호했습니다.",
+          "faction:link": "진영 연계가 발동했습니다.",
+          "duel:start": "일기토가 시작되었습니다.",
+          "duel:hit": "일기토의 승부가 갈렸습니다.",
+          "status:burn": "화상이 타올랐습니다.",
+          "status:counter": "인내의 반계가 발동했습니다.",
+          "status:intimidate": "장판의 호통이 적 전열을 위축시켰습니다.",
+          "status:empty-fort": "공성계가 공격을 무효화했습니다.",
+          "status:raid": "약탈이 다음 공격을 봉쇄했습니다.",
           "game:end": "전투가 끝났습니다.",
           "action:invalid": "지금은 그 행동을 할 수 없습니다.",
         };
@@ -419,6 +443,10 @@
         const armor = Math.max(0, numberOr(card.currentArmor, numberOr(card.armor, 0)));
         const keywords = Array.isArray(card.keywords) ? card.keywords : [];
         const hasCharge = keywords.includes("돌진");
+        const attacksPerTurn = Math.max(
+          1,
+          numberOr(card.combat?.attacksPerTurn, keywords.includes("천하무쌍") ? 2 : 1),
+        );
         return {
           ...deepClone(card),
           controller: side,
@@ -428,13 +456,140 @@
           armor,
           currentArmor: armor,
           canAttack: hasCharge && attack > 0,
-          attacksLeft: hasCharge && attack > 0 ? 1 : 0,
+          attacksLeft: hasCharge && attack > 0 ? attacksPerTurn : 0,
+          maxAttacksPerTurn: attacksPerTurn,
+          attacksMadeThisTurn: 0,
           shield: keywords.includes("방패"),
           guard: keywords.includes("수호"),
           attackLockPending: false,
           attackLockedThisTurn: false,
+          attackLockKind: null,
+          row: null,
+          slot: null,
+          burning: 0,
+          attackPenalty: 0,
+          attackPenaltyUntil: null,
+          storedCounter: 0,
+          counterStored: false,
+          emptyFort: false,
+          secondAttackPenalty: false,
+          temporaryAttackBonus: 0,
           summonedTurn: state.turnNumber,
         };
+      }
+
+      function normalizePlacement(placement) {
+        if (!placement || !FORMATION_ROWS.includes(placement.row)) return null;
+        const slot = Number(placement.slot);
+        if (!Number.isInteger(slot) || slot < 0 || slot >= FORMATION_SLOTS) return null;
+        return { row: placement.row, slot };
+      }
+
+      function occupiedFormationSlots(side, ignoredInstanceId) {
+        const occupied = new Set();
+        state.boards[side].forEach((minion) => {
+          if (ignoredInstanceId && minion.instanceId === ignoredInstanceId) return;
+          const placement = normalizePlacement(minion);
+          if (placement) occupied.add(`${placement.row}:${placement.slot}`);
+        });
+        return occupied;
+      }
+
+      function legalPlacements(side, ignoredInstanceId) {
+        const occupied = occupiedFormationSlots(side, ignoredInstanceId);
+        const placements = [];
+        FORMATION_ROWS.forEach((row) => {
+          for (let slot = 0; slot < FORMATION_SLOTS; slot += 1) {
+            if (!occupied.has(`${row}:${slot}`)) placements.push({ row, slot });
+          }
+        });
+        return placements;
+      }
+
+      function choosePlacement(side, requested, ignoredInstanceId) {
+        const legal = legalPlacements(side, ignoredInstanceId);
+        const normalized = normalizePlacement(requested);
+        if (
+          normalized &&
+          legal.some((placement) =>
+            placement.row === normalized.row && placement.slot === normalized.slot)
+        ) {
+          return normalized;
+        }
+        return legal[0] || null;
+      }
+
+      function placeMinion(side, minion, requested, reason) {
+        const placement = choosePlacement(side, requested, minion.instanceId);
+        if (!placement) return null;
+        minion.row = placement.row;
+        minion.slot = placement.slot;
+        if (!state.boards[side].some((candidate) => candidate.instanceId === minion.instanceId)) {
+          state.boards[side].push(minion);
+        }
+        const index = state.boards[side].findIndex(
+          (candidate) => candidate.instanceId === minion.instanceId,
+        );
+        publish("formation:place", {
+          actor: side,
+          side,
+          target: { zone: "board", side, index },
+          instanceId: minion.instanceId,
+          cardId: minion.id,
+          name: minion.name || "",
+          placement: deepClone(placement),
+          row: placement.row,
+          slot: placement.slot,
+          reason: reason || "play",
+        });
+        return placement;
+      }
+
+      function ensureFormation(side) {
+        const occupied = new Set();
+        state.boards[side].forEach((minion) => {
+          const normalized = normalizePlacement(minion);
+          const key = normalized ? `${normalized.row}:${normalized.slot}` : "";
+          if (normalized && !occupied.has(key)) {
+            minion.row = normalized.row;
+            minion.slot = normalized.slot;
+            occupied.add(key);
+            return;
+          }
+          const fallback = FORMATION_ROWS.flatMap((row) =>
+            Array.from({ length: FORMATION_SLOTS }, (_value, slot) => ({ row, slot })),
+          ).find((placement) => !occupied.has(`${placement.row}:${placement.slot}`));
+          if (fallback) {
+            minion.row = fallback.row;
+            minion.slot = fallback.slot;
+            occupied.add(`${fallback.row}:${fallback.slot}`);
+          }
+        });
+      }
+
+      function hasAbilityOp(source, op) {
+        return Array.isArray(source?.abilities) &&
+          source.abilities.some((ability) => ability && ability.op === op);
+      }
+
+      function normalizeFactionGroup(faction) {
+        const value = String(faction || "").trim().toLowerCase();
+        if (["촉", "shu"].includes(value)) return "shu";
+        if (["위", "wei"].includes(value)) return "wei";
+        if (["오", "wu"].includes(value)) return "wu";
+        if (["군웅", "남만", "이민족", "qun", "nanman", "nomad"].includes(value)) {
+          return "nomad";
+        }
+        return value;
+      }
+
+      function factionLinkName(linkKind) {
+        return {
+          brotherhood: "의형제",
+          strategy: "군략",
+          kindle: "연화",
+          raid: "약탈",
+        }[linkKind] || "연계";
       }
 
       function endGame(winner, reason) {
@@ -476,6 +631,38 @@
         const hero = state.heroes[side];
         const healthBefore = hero.health;
         let amount = Math.max(0, numberOr(rawAmount, 0));
+        if (amount > 0 && source?.op === "attack" && numberOr(hero.emptyFortCharges, 0) > 0) {
+          const chargesBefore = hero.emptyFortCharges;
+          hero.emptyFortCharges = Math.max(0, chargesBefore - 1);
+          if (hero.emptyFortCharges === 0) {
+            state.boards[side].forEach((minion) => {
+              minion.emptyFort = false;
+            });
+          }
+          publish("status:empty-fort", {
+            actor: side,
+            side,
+            target: { zone: "hero", side },
+            chargesBefore,
+            chargesAfter: hero.emptyFortCharges,
+            preventedDamage: amount,
+            source: source || null,
+          });
+          publish("hero:damage", {
+            actor: source && source.side ? source.side : null,
+            side,
+            target: { zone: "hero", side },
+            amount: 0,
+            actualDamage: 0,
+            armorAbsorbed: 0,
+            blockedByEmptyFort: true,
+            healthBefore,
+            healthAfter: hero.health,
+            health: hero.health,
+            source: source || null,
+          });
+          return 0;
+        }
         const absorbed = Math.min(hero.armor, amount);
         hero.armor -= absorbed;
         amount -= absorbed;
@@ -533,6 +720,29 @@
         minion.armor = minion.currentArmor;
         amount -= armorAbsorbed;
         minion.currentHealth -= amount;
+        if (
+          amount > 0 &&
+          !minion.counterStored &&
+          hasAbilityOp(minion, "patience_counter")
+        ) {
+          const counterAbility = minion.abilities.find(
+            (ability) => ability && ability.op === "patience_counter",
+          );
+          minion.storedCounter = Math.min(
+            Math.max(0, numberOr(counterAbility?.maxStored, 2)),
+            amount,
+          );
+          minion.counterStored = minion.storedCounter > 0;
+          publish("status:counter", {
+            actor: side,
+            side,
+            phase: "stored",
+            target,
+            instanceId: minion.instanceId,
+            storedCounter: minion.storedCounter,
+            source: source || null,
+          });
+        }
         publish("minion:damage", {
           actor: source && source.side ? source.side : null,
           side,
@@ -580,7 +790,8 @@
           const card = makeCard(definition);
           card.isToken = true;
           const minion = createMinion(card, side);
-          state.boards[side].push(minion);
+          const placement = placeMinion(side, minion, null, "summon");
+          if (!placement) break;
           summonedCount += 1;
           publish("effect:trigger", {
             actor: side,
@@ -594,6 +805,7 @@
               ? { id: source.id, instanceId: source.instanceId, name: source.name || "" }
               : null,
             target: { zone: "board", side, index: state.boards[side].length - 1 },
+            placement: deepClone(placement),
             result: {
               success: true,
               fizzled: false,
@@ -610,6 +822,7 @@
                   instanceId: minion.instanceId,
                   name: minion.name || "",
                   boardIndex: state.boards[side].length - 1,
+                  placement: deepClone(placement),
                 },
               ],
             },
@@ -624,6 +837,9 @@
         const attack = numberOr(ability.attack, numberOr(ability.amount, 0));
         const health = numberOr(ability.health, numberOr(ability.amount, 0));
         minion.currentAttack = Math.max(0, minion.currentAttack + attack);
+        if (ability.duration === "thisTurn" && attack > 0) {
+          minion.temporaryAttackBonus = numberOr(minion.temporaryAttackBonus, 0) + attack;
+        }
         minion.maxHealth = Math.max(1, minion.maxHealth + health);
         minion.currentHealth += health;
         if (minion.currentHealth > minion.maxHealth) minion.currentHealth = minion.maxHealth;
@@ -803,8 +1019,41 @@
           targets: [],
           indexes: [],
         };
-        if (op === "damage_target") {
+        const sourceIndex = state.boards[side].findIndex(
+          (minion) => minion.instanceId === source?.instanceId,
+        );
+        const otherAllies = state.boards[side].filter(
+          (minion) => minion.instanceId !== source?.instanceId,
+        );
+        if (ability.requiredRow && source?.row !== ability.requiredRow) {
+          preview.result.success = false;
+          preview.result.fizzled = true;
+          preview.result.reason = "required_row_missing";
+        } else if (ability.requiresSolo && otherAllies.length > 0) {
+          preview.result.success = false;
+          preview.result.fizzled = true;
+          preview.result.reason = "requires_solo";
+        } else if (op === "damage_target") {
           preview.result = previewDamage(preview.target, amount);
+        } else if (op === "duel_target") {
+          preview.selected = findTarget(preview.target);
+          if (!preview.selected) {
+            preview.result.success = false;
+            preview.result.fizzled = true;
+            preview.result.reason = "target_missing";
+          } else if (preview.selected.zone !== "board" || preview.selected.side !== enemy) {
+            preview.result.success = false;
+            preview.result.fizzled = true;
+            preview.result.reason = "invalid_target";
+          } else {
+            preview.result.sourceAttack = Math.max(0, numberOr(source.currentAttack, 0));
+            preview.result.targetAttack = Math.max(
+              0,
+              numberOr(preview.selected.entity.currentAttack, 0),
+            );
+            preview.result.targetName = preview.selected.entity.name || "대상 장수";
+            preview.result.sourceIndex = sourceIndex;
+          }
         } else if (op === "damage_enemy_hero") {
           preview.target = { zone: "hero", side: enemy };
           preview.result = previewDamage(preview.target, amount);
@@ -933,6 +1182,7 @@
               name: preview.selected.entity.name || "",
               from: { zone: "board", side: enemy, index: preview.selected.index },
               to: { zone: "board", side, index: state.boards[side].length },
+              placement: choosePlacement(side),
               canAttack: false,
               availableFromTurn: state.turnNumber + 2,
             };
@@ -986,15 +1236,57 @@
             preview.result.reason = "target_missing";
           }
         } else if (op === "buff_self") {
-          const index = state.boards[side].findIndex(
-            (minion) => minion.instanceId === source.instanceId,
-          );
+          const index = sourceIndex;
           preview.selected = index >= 0 ? state.boards[side][index] : null;
           preview.target = index >= 0 ? { zone: "board", side, index } : null;
           if (!preview.selected) {
             preview.result.success = false;
             preview.result.fizzled = true;
             preview.result.reason = "target_missing";
+          }
+        } else if (op === "weaken_enemy_front") {
+          preview.targets = state.boards[enemy]
+            .map((minion, index) =>
+              minion.row === "front"
+                ? { minion, target: { zone: "board", side: enemy, index } }
+                : null,
+            )
+            .filter(Boolean);
+          preview.target = { zone: "board", side: enemy, row: "front", all: true };
+          preview.result.affectedTargets = preview.targets.map(({ target }) => deepClone(target));
+          preview.result.attackPenalty = Math.max(0, amount);
+          preview.result.duration = ability.duration || "nextEnemyTurnEnd";
+        } else if (op === "empty_fort") {
+          preview.target = { zone: "hero", side };
+          preview.result.chargesGranted = Math.max(1, numberOr(ability.charges, 1));
+          preview.result.chargesBefore = numberOr(state.heroes[side].emptyFortCharges, 0);
+        } else if (op === "patience_counter") {
+          preview.target = sourceIndex >= 0 ? { zone: "board", side, index: sourceIndex } : null;
+          preview.result.maxStored = Math.max(0, numberOr(ability.maxStored, 2));
+        } else if (op === "apply_burning_all") {
+          preview.target = { zone: "board", side: enemy, all: true };
+          preview.targets = state.boards[enemy].map((minion, index) => ({
+            minion,
+            target: { zone: "board", side: enemy, index },
+          }));
+          preview.result.affectedTargets = preview.targets.map(({ minion, target }) => ({
+            target: deepClone(target),
+            burningBefore: Math.max(0, numberOr(minion.burning, 0)),
+            burningAfter: Math.max(0, numberOr(minion.burning, 0)) + Math.max(0, amount),
+          }));
+        } else if (op === "faction_link") {
+          const sourceFaction = normalizeFactionGroup(source?.faction);
+          const linkedAllies = otherAllies.filter(
+            (minion) => normalizeFactionGroup(minion.faction) === sourceFaction,
+          );
+          preview.targets = linkedAllies.map((minion) => ({ minion }));
+          preview.result.linkKind = ability.linkKind || null;
+          preview.result.linkName = factionLinkName(ability.linkKind);
+          preview.result.linkedAllyCount = linkedAllies.length;
+          if (sourceIndex < 0 || !sourceFaction || !linkedAllies.length) {
+            preview.result.success = false;
+            preview.result.fizzled = true;
+            preview.result.reason = "faction_link_missing";
           }
         } else if (op === "summon_token") {
           const requested = Math.max(0, numberOr(ability.count, 1));
@@ -1085,6 +1377,8 @@
           result: preview.result,
         });
 
+        if (!preview.result.success) return;
+
         if (op === "damage_target") {
           const target = findTarget(preview.target);
           if (target && target.zone === "hero") {
@@ -1094,6 +1388,72 @@
               side,
               instanceId: source.instanceId,
               op,
+            });
+          }
+        } else if (op === "duel_target") {
+          const targetMinion = preview.selected?.entity;
+          if (targetMinion) {
+            const sourceReference = {
+              zone: "board",
+              side,
+              index: state.boards[side].findIndex(
+                (minion) => minion.instanceId === source.instanceId,
+              ),
+            };
+            const targetReference = {
+              zone: "board",
+              side: enemy,
+              index: state.boards[enemy].findIndex(
+                (minion) => minion.instanceId === targetMinion.instanceId,
+              ),
+            };
+            const sourceAttack = Math.max(0, numberOr(source.currentAttack, 0));
+            const targetAttack = Math.max(0, numberOr(targetMinion.currentAttack, 0));
+            publish("duel:start", {
+              actor: side,
+              source: deepClone(sourceReference),
+              target: deepClone(targetReference),
+              sourceAttack,
+              targetAttack,
+            });
+            const ownsDeathBatch = !resolvingDeaths;
+            if (ownsDeathBatch) resolvingDeaths = true;
+            let damageToTarget = 0;
+            let damageToSource = 0;
+            try {
+              damageToTarget = damageMinion(enemy, targetMinion, sourceAttack, {
+                side,
+                instanceId: source.instanceId,
+                op: "duel",
+              });
+              damageToSource = damageMinion(side, source, targetAttack, {
+                side: enemy,
+                instanceId: targetMinion.instanceId,
+                op: "duel_retaliation",
+              });
+            } finally {
+              if (ownsDeathBatch) resolvingDeaths = false;
+            }
+            if (ownsDeathBatch) resolveDeaths();
+            const sourceSurvived = state.boards[side].some(
+              (minion) => minion.instanceId === source.instanceId,
+            );
+            const targetDied = !state.boards[enemy].some(
+              (minion) => minion.instanceId === targetMinion.instanceId,
+            );
+            if (sourceSurvived && targetDied) {
+              source.canAttack = source.currentAttack > 0;
+              source.attacksLeft = Math.max(1, source.attacksLeft);
+            }
+            publish("duel:hit", {
+              actor: side,
+              source: deepClone(sourceReference),
+              target: deepClone(targetReference),
+              damageToTarget,
+              damageToSource,
+              sourceSurvived,
+              targetDied,
+              readied: sourceSurvived && targetDied,
             });
           }
         } else if (op === "damage_enemy_hero") {
@@ -1152,8 +1512,11 @@
               stolen.attacksLeft = 0;
               stolen.attackLockPending = false;
               stolen.attackLockedThisTurn = false;
+              stolen.attackLockKind = null;
               stolen.summonedTurn = state.turnNumber;
-              state.boards[side].push(stolen);
+              stolen.row = null;
+              stolen.slot = null;
+              placeMinion(side, stolen, null, "steal");
             }
           }
         } else if (op === "buff_target") {
@@ -1166,6 +1529,147 @@
           preview.targets.forEach(({ minion }) => buffMinion(minion, ability));
         } else if (op === "buff_self") {
           if (preview.selected) buffMinion(preview.selected, ability);
+        } else if (op === "weaken_enemy_front") {
+          const penalty = Math.max(0, amount);
+          preview.targets.forEach(({ minion, target }) => {
+            minion.currentAttack = Math.max(0, minion.currentAttack - penalty);
+            minion.attackPenalty = numberOr(minion.attackPenalty, 0) + penalty;
+            minion.attackPenaltyUntil = "ownerTurnEnd";
+            if (minion.currentAttack <= 0) {
+              minion.canAttack = false;
+              minion.attacksLeft = 0;
+            }
+            publish("status:intimidate", {
+              actor: side,
+              side: enemy,
+              target: deepClone(target),
+              amount: penalty,
+              attackPenalty: minion.attackPenalty,
+              duration: ability.duration || "nextEnemyTurnEnd",
+            });
+          });
+        } else if (op === "empty_fort") {
+          const charges = Math.max(1, numberOr(ability.charges, 1));
+          state.heroes[side].emptyFortCharges =
+            numberOr(state.heroes[side].emptyFortCharges, 0) + charges;
+          source.emptyFort = true;
+          publish("status:empty-fort", {
+            actor: side,
+            side,
+            phase: "armed",
+            target: { zone: "hero", side },
+            source: source.instanceId,
+            charges,
+            chargesAfter: state.heroes[side].emptyFortCharges,
+          });
+        } else if (op === "patience_counter") {
+          source.storedCounter = Math.max(0, numberOr(source.storedCounter, 0));
+        } else if (op === "apply_burning_all") {
+          const burning = Math.max(0, amount);
+          preview.targets.forEach(({ minion, target }) => {
+            minion.burning = Math.max(0, numberOr(minion.burning, 0)) + burning;
+            publish("status:burn", {
+              actor: side,
+              side: enemy,
+              phase: "applied",
+              target: deepClone(target),
+              amount: burning,
+              burning: minion.burning,
+            });
+          });
+        } else if (op === "faction_link") {
+          const linkKind = ability.linkKind;
+          const linkedAllies = preview.targets.map(({ minion }) => minion);
+          const result = {
+            linkKind,
+            linkName: factionLinkName(linkKind),
+            source: source.instanceId,
+            linkedAllyCount: linkedAllies.length,
+            affectedTargets: [],
+          };
+          if (linkKind === "brotherhood") {
+            const lowest = linkedAllies.reduce(
+              (selected, minion) =>
+                !selected || minion.currentHealth < selected.currentHealth ? minion : selected,
+              null,
+            );
+            [source, lowest].filter(Boolean).forEach((minion) => {
+              minion.maxHealth += 1;
+              minion.currentHealth += 1;
+              result.affectedTargets.push(minion.instanceId);
+            });
+          } else if (linkKind === "strategy") {
+            const selected = state.hands[side]
+              .filter((card) => numberOr(card.currentCost, card.cost) > 1)
+              .reduce((best, card) => {
+              if (!best || card.currentCost > best.currentCost) return card;
+              return best;
+            }, null);
+            if (selected) {
+              const costBefore = selected.currentCost;
+              selected.currentCost = Math.max(1, selected.currentCost - 1);
+              selected.cost = selected.currentCost;
+              result.discountedTarget = {
+                id: selected.id,
+                instanceId: selected.instanceId,
+                name: selected.name || "",
+                costBefore,
+                costAfter: selected.currentCost,
+              };
+            }
+          } else if (linkKind === "kindle") {
+            const candidates = state.boards[enemy].map((minion, index) => ({ minion, index }));
+            const selected = randomItem(candidates);
+            if (selected) {
+              selected.minion.burning = Math.max(0, numberOr(selected.minion.burning, 0)) + 1;
+              result.burningTarget = selected.minion.instanceId;
+              result.affectedTargets.push(selected.minion.instanceId);
+              publish("status:burn", {
+                actor: side,
+                side: enemy,
+                phase: "applied",
+                target: { zone: "board", side: enemy, index: selected.index },
+                amount: 1,
+                burning: selected.minion.burning,
+              });
+            } else {
+              result.actualDamage = damageHero(enemy, 1, {
+                side,
+                instanceId: source.instanceId,
+                op: "faction_link_kindle",
+              });
+            }
+          } else if (linkKind === "raid") {
+            const candidates = state.boards[enemy]
+              .map((minion, index) => ({ minion, index }))
+              .filter(({ minion }) => !minion.attackLockPending && !minion.attackLockedThisTurn);
+            const selected = randomItem(candidates);
+            if (selected) {
+              selected.minion.attackLockPending = true;
+              selected.minion.attackLockKind = "raid";
+              result.lockedTarget = selected.minion.instanceId;
+              result.affectedTargets.push(selected.minion.instanceId);
+              publish("status:raid", {
+                actor: side,
+                side: enemy,
+                phase: "pending",
+                target: { zone: "board", side: enemy, index: selected.index },
+                instanceId: selected.minion.instanceId,
+              });
+            } else {
+              state.heroes[side].armor += 1;
+              result.actualArmorGained = 1;
+            }
+          }
+          publish("faction:link", {
+            actor: side,
+            side,
+            faction: normalizeFactionGroup(source.faction),
+            linkKind,
+            linkName: result.linkName,
+            source: source.instanceId,
+            result,
+          });
         } else if (op === "summon_token") {
           summonToken(side, ability.tokenId, numberOr(ability.count, 1), source);
         } else if (op === "reduce_random_hand_cost") {
@@ -1265,6 +1769,125 @@
         return burned ? null : card;
       }
 
+      function resolvePatienceCounters(side) {
+        const counters = state.boards[side]
+          .filter((minion) => numberOr(minion.storedCounter, 0) > 0)
+          .map((minion) => ({ minion, amount: Math.max(0, numberOr(minion.storedCounter, 0)) }));
+        counters.forEach(({ minion, amount }) => {
+          if (state.phase !== "playing") return;
+          minion.storedCounter = 0;
+          const enemy = OTHER_SIDE[side];
+          const candidates = state.boards[enemy].map((target, index) => ({ target, index }));
+          const selected = randomItem(candidates);
+          const targetReference = selected
+            ? { zone: "board", side: enemy, index: selected.index }
+            : { zone: "hero", side: enemy };
+          publish("status:counter", {
+            actor: side,
+            side,
+            phase: "released",
+            source: minion.instanceId,
+            target: deepClone(targetReference),
+            amount,
+          });
+          if (selected) {
+            damageMinion(enemy, selected.target, amount, {
+              side,
+              instanceId: minion.instanceId,
+              op: "patience_counter",
+            });
+            resolveDeaths();
+          } else {
+            damageHero(enemy, amount, {
+              side,
+              instanceId: minion.instanceId,
+              op: "patience_counter",
+            });
+          }
+        });
+      }
+
+      function resolveTurnEndStatuses(side) {
+        const burningTargets = state.boards[side]
+          .filter((minion) => numberOr(minion.burning, 0) > 0)
+          .map((minion) => ({ minion, burning: Math.max(0, numberOr(minion.burning, 0)) }));
+        const ownsDeathBatch = burningTargets.length > 0 && !resolvingDeaths;
+        if (ownsDeathBatch) resolvingDeaths = true;
+        try {
+          burningTargets.forEach(({ minion, burning }) => {
+            const index = state.boards[side].findIndex(
+              (candidate) => candidate.instanceId === minion.instanceId,
+            );
+            if (index < 0) return;
+            minion.burning = Math.max(0, burning - 1);
+            publish("status:burn", {
+              actor: OTHER_SIDE[side],
+              side,
+              phase: "tick",
+              target: { zone: "board", side, index },
+              amount: burning,
+              burningBefore: burning,
+              burningAfter: minion.burning,
+            });
+            damageMinion(side, minion, burning, {
+              side: OTHER_SIDE[side],
+              op: "burning",
+            });
+          });
+        } finally {
+          if (ownsDeathBatch) resolvingDeaths = false;
+        }
+        if (ownsDeathBatch) resolveDeaths();
+        if (state.phase !== "playing") return;
+
+        const recoilTargets = state.boards[side].filter(
+          (minion) => minion.secondAttackPenalty,
+        );
+        const ownsRecoilBatch = recoilTargets.length > 0 && !resolvingDeaths;
+        if (ownsRecoilBatch) resolvingDeaths = true;
+        try {
+          recoilTargets.forEach((minion) => {
+            minion.secondAttackPenalty = false;
+            const amount = Math.max(
+              0,
+              numberOr(
+                minion.combat?.secondAttackSelfDamage,
+                Array.isArray(minion.keywords) && minion.keywords.includes("천하무쌍") ? 2 : 0,
+              ),
+            );
+            if (amount > 0) {
+              damageMinion(side, minion, amount, {
+                side,
+                instanceId: minion.instanceId,
+                op: "second_attack_penalty",
+              });
+            }
+          });
+        } finally {
+          if (ownsRecoilBatch) resolvingDeaths = false;
+        }
+        if (ownsRecoilBatch) resolveDeaths();
+        if (state.phase !== "playing") return;
+
+        state.boards[side].forEach((minion) => {
+          const temporaryBonus = Math.max(0, numberOr(minion.temporaryAttackBonus, 0));
+          if (temporaryBonus > 0) {
+            minion.currentAttack = Math.max(0, minion.currentAttack - temporaryBonus);
+            minion.temporaryAttackBonus = 0;
+          }
+          if (minion.attackPenaltyUntil === "ownerTurnEnd") {
+            const penalty = Math.max(0, numberOr(minion.attackPenalty, 0));
+            minion.currentAttack += penalty;
+            minion.attackPenalty = 0;
+            minion.attackPenaltyUntil = null;
+          }
+          if (minion.attackLockedThisTurn) {
+            minion.attackLockedThisTurn = false;
+            minion.attackLockKind = null;
+          }
+        });
+      }
+
       function startTurn(side, initial) {
         if (state.phase === "ended") return;
         state.turn = side;
@@ -1273,36 +1896,62 @@
         commander.powerUsedThisTurn = false;
         hero.maxMana = Math.min(MAX_MANA, hero.maxMana + 1);
         hero.mana = hero.maxMana;
+        resolvePatienceCounters(side);
+        if (state.phase !== "playing") return;
         state.boards[side].forEach((minion) => {
           if (minion.attackLockPending) {
             minion.attackLockPending = false;
-            minion.attackLockedThisTurn = true;
-            minion.attacksLeft = 0;
-            minion.canAttack = false;
-            publish("commander:lock", {
-              actor: OTHER_SIDE[side],
-              side: OTHER_SIDE[side],
-              commanderId: commanderFor(OTHER_SIDE[side]).id,
-              powerId: COMMANDER_DEFINITIONS.nomad.powerId,
-              target: {
-                zone: "board",
+            const target = {
+              zone: "board",
+              side,
+              index: state.boards[side].findIndex(
+                (candidate) => candidate.instanceId === minion.instanceId,
+              ),
+            };
+            if (minion.attackLockKind === "raid") {
+              const normalAttacks = minion.currentAttack > 0
+                ? Math.max(1, numberOr(minion.maxAttacksPerTurn, 1))
+                : 0;
+              minion.attackLockedThisTurn = false;
+              minion.attacksLeft = Math.max(0, normalAttacks - 1);
+              minion.canAttack = minion.attacksLeft > 0;
+              publish("status:raid", {
+                actor: OTHER_SIDE[side],
                 side,
-                index: state.boards[side].findIndex(
-                  (candidate) => candidate.instanceId === minion.instanceId,
-                ),
-              },
-              status: "active",
-              lockedTarget: {
-                id: minion.id,
+                phase: "active",
+                target,
                 instanceId: minion.instanceId,
-                name: minion.name || "",
-              },
-            });
+                blockedAttacks: normalAttacks > 0 ? 1 : 0,
+                attacksRemaining: minion.attacksLeft,
+              });
+              minion.attackLockKind = null;
+            } else {
+              minion.attackLockedThisTurn = true;
+              minion.attacksLeft = 0;
+              minion.canAttack = false;
+              publish("commander:lock", {
+                actor: OTHER_SIDE[side],
+                side: OTHER_SIDE[side],
+                commanderId: commanderFor(OTHER_SIDE[side]).id,
+                powerId: COMMANDER_DEFINITIONS.nomad.powerId,
+                target,
+                status: "active",
+                lockedTarget: {
+                  id: minion.id,
+                  instanceId: minion.instanceId,
+                  name: minion.name || "",
+                },
+              });
+            }
           } else {
             minion.attackLockedThisTurn = false;
-            minion.attacksLeft = minion.currentAttack > 0 ? 1 : 0;
+            minion.attacksLeft = minion.currentAttack > 0
+              ? Math.max(1, numberOr(minion.maxAttacksPerTurn, 1))
+              : 0;
             minion.canAttack = minion.currentAttack > 0;
           }
+          minion.attacksMadeThisTurn = 0;
+          minion.secondAttackPenalty = false;
         });
         drawCard(side, false, null);
         if (state.phase === "playing") {
@@ -1328,6 +1977,7 @@
           (ability) =>
             ability &&
             (ability.target === "enemyMinion" ||
+              ability.op === "duel_target" ||
               ability.op === "steal_enemy_minion" ||
               ability.op === "steal_enemy_minion_max_cost"),
         )
@@ -1342,6 +1992,7 @@
           abilities.some(
             (ability) =>
               ability.op === "buff_target" ||
+              ability.op === "duel_target" ||
               ability.op === "steal_enemy_minion" ||
               ability.op === "steal_enemy_minion_max_cost",
           )
@@ -1417,7 +2068,7 @@
         );
       }
 
-      function canPlayCard(side, handIndex, target) {
+      function canPlayCard(side, handIndex, target, placement) {
         if (state.phase !== "playing") return { ok: false, reason: "game_ended" };
         if (state.turn !== side) return { ok: false, reason: "not_your_turn" };
         if (!SIDES.includes(side)) return { ok: false, reason: "invalid_side" };
@@ -1425,7 +2076,8 @@
           return { ok: false, reason: "invalid_hand_index" };
         }
         const card = state.hands[side][handIndex];
-        if (state.boards[side].length >= BOARD_LIMIT) {
+        const resolvedPlacement = choosePlacement(side, placement);
+        if (state.boards[side].length >= BOARD_LIMIT || !resolvedPlacement) {
           return { ok: false, reason: "board_full" };
         }
         if (state.heroes[side].mana < card.currentCost) {
@@ -1434,16 +2086,16 @@
         if (!validateCardTarget(card, side, target)) {
           return { ok: false, reason: "invalid_target" };
         }
-        return { ok: true, card };
+        return { ok: true, card, placement: resolvedPlacement };
       }
 
-      function playCard(side, handIndex, target) {
-        const validation = canPlayCard(side, handIndex, target);
-        if (!validation.ok) return fail(side, validation.reason, { handIndex, target });
+      function playCard(side, handIndex, target, placement) {
+        const validation = canPlayCard(side, handIndex, target, placement);
+        if (!validation.ok) return fail(side, validation.reason, { handIndex, target, placement });
         const card = state.hands[side].splice(handIndex, 1)[0];
         state.heroes[side].mana -= card.currentCost;
         const minion = createMinion(card, side);
-        state.boards[side].push(minion);
+        const resolvedPlacement = placeMinion(side, minion, validation.placement, "play");
         publish("card:play", {
           actor: side,
           handIndex,
@@ -1452,15 +2104,17 @@
           instanceId: minion.instanceId,
           target: target || null,
           boardIndex: state.boards[side].length - 1,
+          placement: deepClone(resolvedPlacement),
           manaRemaining: state.heroes[side].mana,
         });
         executeAbilities(side, minion, "onPlay", {
           target: target || null,
           sourceIndex: state.boards[side].length - 1,
+          placement: deepClone(resolvedPlacement),
         });
         resolveDeaths();
         checkGameEnd("effect");
-        return succeed({ instanceId: minion.instanceId });
+        return succeed({ instanceId: minion.instanceId, placement: deepClone(resolvedPlacement) });
       }
 
       function legalCommanderPowerTargets(side) {
@@ -1616,6 +2270,7 @@
           resolvedTarget = { zone: "board", side: target.side, index };
           minion.attackLockPending = true;
           minion.attackLockedThisTurn = false;
+          minion.attackLockKind = "commander";
           result.lockedTarget = {
             id: minion.id,
             instanceId: minion.instanceId,
@@ -1660,12 +2315,14 @@
         state.boards[enemy].forEach((minion, index) => {
           if (minion.guard) guards.push({ zone: "board", side: enemy, index });
         });
-        if (guards.length) {
-          const hasSnipe = Array.isArray(attacker?.keywords) && attacker.keywords.includes("저격");
-          return hasSnipe ? [{ zone: "hero", side: enemy }, ...guards] : guards;
-        }
+        if (guards.length) return guards;
+        const bypassesFront =
+          Array.isArray(attacker?.keywords) &&
+          (attacker.keywords.includes("저격") || attacker.keywords.includes("돌파"));
+        const hasEnemyFront = state.boards[enemy].some((minion) => minion.row === "front");
         const targets = [{ zone: "hero", side: enemy }];
-        state.boards[enemy].forEach((_minion, index) => {
+        state.boards[enemy].forEach((minion, index) => {
+          if (minion.row === "rear" && hasEnemyFront && !bypassesFront) return;
           targets.push({ zone: "board", side: enemy, index });
         });
         return targets;
@@ -1693,12 +2350,11 @@
             minion.guard ? { zone: "board", side: enemy, index } : null,
           )
           .filter(Boolean);
-        const hasSnipe = Array.isArray(attacker.keywords) && attacker.keywords.includes("저격");
         const blockedByGuard =
           guardTargets.length > 0 &&
           requestedTarget &&
           requestedTarget.side === enemy &&
-          ((requestedTarget.zone === "hero" && !hasSnipe) ||
+          (requestedTarget.zone === "hero" ||
             (requestedTarget.zone === "board" && !requestedTarget.entity.guard));
         if (blockedByGuard) {
           return {
@@ -1709,6 +2365,32 @@
             targetSide: enemy,
             target: deepClone(targetReference),
             guardTargets: deepClone(guardTargets),
+          };
+        }
+        const bypassesFront =
+          Array.isArray(attacker.keywords) &&
+          (attacker.keywords.includes("저격") || attacker.keywords.includes("돌파"));
+        const frontTargets = state.boards[enemy]
+          .map((minion, index) =>
+            minion.row === "front" ? { zone: "board", side: enemy, index } : null,
+          )
+          .filter(Boolean);
+        const blockedByFormation =
+          !guardTargets.length &&
+          !bypassesFront &&
+          frontTargets.length > 0 &&
+          requestedTarget?.zone === "board" &&
+          requestedTarget.side === enemy &&
+          requestedTarget.entity.row === "rear";
+        if (blockedByFormation) {
+          return {
+            ok: false,
+            reason: "invalid_attack_target",
+            blockedByFormation: true,
+            side,
+            targetSide: enemy,
+            target: deepClone(targetReference),
+            frontTargets: deepClone(frontTargets),
           };
         }
         const targetIsLegal = legal.some(
@@ -1727,21 +2409,49 @@
       function attack(side, attackerIndex, targetReference) {
         const validation = canAttack(side, attackerIndex, targetReference);
         if (!validation.ok) {
+          if (validation.blockedByFormation) {
+            publish("formation:block", {
+              actor: side,
+              side,
+              attackerIndex,
+              target: deepClone(targetReference),
+              targetSide: validation.targetSide,
+              frontTargets: validation.frontTargets || [],
+              reason: "front_protects_rear",
+            });
+          }
           return fail(side, validation.reason, {
             attackerIndex,
             target: targetReference,
             side,
             blockedByGuard: Boolean(validation.blockedByGuard),
+            blockedByFormation: Boolean(validation.blockedByFormation),
             targetSide:
               validation.targetSide ||
               (targetReference && SIDES.includes(targetReference.side)
                 ? targetReference.side
                 : null),
             guardTargets: validation.guardTargets || [],
+            frontTargets: validation.frontTargets || [],
           });
         }
         const { attacker, target } = validation;
         attacker.attacksLeft -= 1;
+        attacker.attacksMadeThisTurn = numberOr(attacker.attacksMadeThisTurn, 0) + 1;
+        if (
+          attacker.attacksMadeThisTurn >= 2 &&
+          Math.max(
+            0,
+            numberOr(
+              attacker.combat?.secondAttackSelfDamage,
+              Array.isArray(attacker.keywords) && attacker.keywords.includes("천하무쌍")
+                ? 2
+                : 0,
+            ),
+          ) > 0
+        ) {
+          attacker.secondAttackPenalty = true;
+        }
         attacker.canAttack = attacker.attacksLeft > 0;
         publish("attack:start", {
           actor: side,
@@ -1818,11 +2528,8 @@
         if (!SIDES.includes(side)) return fail(side, "invalid_side");
         if (state.turn !== side) return fail(side, "not_your_turn");
         publish("turn:end", { actor: side, turnNumber: state.turnNumber });
-        state.boards[side].forEach((minion) => {
-          if (minion.attackLockedThisTurn) {
-            minion.attackLockedThisTurn = false;
-          }
-        });
+        resolveTurnEndStatuses(side);
+        if (state.phase === "ended") return succeed();
         state.turnNumber += 1;
         startTurn(OTHER_SIDE[side], false);
         return succeed();
@@ -1842,10 +2549,18 @@
         state.hands[actor].forEach((card, handIndex) => {
           if (state.heroes[actor].mana < card.currentCost) return;
           if (state.boards[actor].length >= BOARD_LIMIT) return;
+          const placements = legalPlacements(actor);
           legalCardTargets(card, actor).forEach((target) => {
-            const action = { type: "playCard", side: actor, handIndex };
-            if (target) action.target = deepClone(target);
-            actions.push(action);
+            placements.forEach((placement) => {
+              const action = {
+                type: "playCard",
+                side: actor,
+                handIndex,
+                placement: deepClone(placement),
+              };
+              if (target) action.target = deepClone(target);
+              actions.push(action);
+            });
           });
         });
         state.boards[actor].forEach((minion, attackerIndex) => {
@@ -1879,7 +2594,12 @@
       function applyAction(action) {
         if (!action || typeof action !== "object") return fail(null, "invalid_action");
         if (action.type === "playCard") {
-          return playCard(action.side, Number(action.handIndex), action.target);
+          return playCard(
+            action.side,
+            Number(action.handIndex),
+            action.target,
+            action.placement,
+          );
         }
         if (action.type === "attack") {
           return attack(action.side, Number(action.attackerIndex), action.target);
@@ -1908,6 +2628,33 @@
           player: makeCommander(commanderSelections.player),
           ai: makeCommander(commanderSelections.ai),
         };
+        SIDES.forEach((side) => {
+          state.heroes[side].emptyFortCharges = Math.max(
+            0,
+            numberOr(state.heroes[side].emptyFortCharges, 0),
+          );
+          state.boards[side].forEach((minion) => {
+            minion.maxAttacksPerTurn = Math.max(
+              1,
+              numberOr(
+                minion.maxAttacksPerTurn,
+                minion.combat?.attacksPerTurn ||
+                  (Array.isArray(minion.keywords) && minion.keywords.includes("천하무쌍")
+                    ? 2
+                    : 1),
+              ),
+            );
+            minion.attacksMadeThisTurn = Math.max(0, numberOr(minion.attacksMadeThisTurn, 0));
+            minion.burning = Math.max(0, numberOr(minion.burning, 0));
+            minion.attackPenalty = Math.max(0, numberOr(minion.attackPenalty, 0));
+            minion.storedCounter = Math.max(0, numberOr(minion.storedCounter, 0));
+            minion.temporaryAttackBonus = Math.max(
+              0,
+              numberOr(minion.temporaryAttackBonus, 0),
+            );
+          });
+          ensureFormation(side);
+        });
       } else {
         state = {
           phase: "playing",
@@ -1972,6 +2719,8 @@
     commanderDefinitions: deepClone(COMMANDER_DEFINITIONS),
     constants: {
       BOARD_LIMIT,
+      FORMATION_ROWS: FORMATION_ROWS.slice(),
+      FORMATION_SLOTS,
       HAND_LIMIT,
       MAX_MANA,
       STARTING_HEALTH,

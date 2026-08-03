@@ -1395,6 +1395,167 @@ assert.equal(ctx.calls.save, ctx.calls.restore, "render preserves Canvas2D state
 assert.equal(fx._debug().particles, 0, "particles expire");
 assert.equal(fx._debug().jobs, 0, "timeline jobs expire");
 
+// Formation, faction links, signature generals, and persistent statuses own
+// short semantic cues. They resolve through the supplied runtime anchors and
+// remain visually distinct without replaying the generic effect animation.
+function tacticalAnchor(reference, detail) {
+  if (reference && typeof reference === "object" && reference.zone === "hero") {
+    return { x: 600, y: reference.side === "ai" ? 90 : 610 };
+  }
+  if (reference && typeof reference === "object" && reference.zone === "board") {
+    return {
+      x: 250 + (Number.isInteger(reference.index) ? reference.index : 0) * 95,
+      y: reference.side === "ai" ? 220 : 480
+    };
+  }
+  if (typeof reference === "string" && /guan|source/.test(reference)) {
+    return { x: 330, y: 480 };
+  }
+  const side = detail && (detail.side || detail.actor);
+  return { x: 600, y: side === "ai" ? 220 : 480 };
+}
+
+const tacticalFx = moduleApi.createFX({
+  canvas: { width: 1200, height: 700 },
+  getAnchor: tacticalAnchor,
+  reducedMotion: false
+});
+const tacticalEvents = [
+  ["formation:place", {
+    actor: "player", side: "player",
+    target: { zone: "board", side: "player", index: 1 },
+    placement: { row: "rear", slot: 2 }
+  }],
+  ["formation:block", {
+    actor: "player",
+    target: { zone: "board", side: "ai", index: 2 },
+    frontTargets: [{ zone: "board", side: "ai", index: 0 }]
+  }],
+  ["faction:link", {
+    actor: "player", side: "player", source: "source-brotherhood",
+    linkKind: "brotherhood", linkName: "의형제"
+  }],
+  ["faction:link", {
+    actor: "player", side: "player", source: "source-strategy",
+    linkKind: "strategy", linkName: "군략"
+  }],
+  ["faction:link", {
+    actor: "player", side: "player", source: "source-kindle",
+    linkKind: "kindle", linkName: "연화"
+  }],
+  ["faction:link", {
+    actor: "player", side: "player", source: "source-raid",
+    linkKind: "raid", linkName: "약탈"
+  }],
+  ["duel:start", {
+    actor: "player",
+    source: { zone: "board", side: "player", index: 0 },
+    target: { zone: "board", side: "ai", index: 1 }
+  }],
+  ["duel:hit", {
+    actor: "player", targetDied: true,
+    source: { zone: "board", side: "player", index: 0 },
+    target: { zone: "board", side: "ai", index: 1 }
+  }],
+  ["status:burn", {
+    actor: "player", phase: "applied", amount: 1,
+    target: { zone: "board", side: "ai", index: 0 }
+  }],
+  ["status:counter", {
+    actor: "player", phase: "released", amount: 2,
+    target: { zone: "board", side: "ai", index: 1 }
+  }],
+  ["status:intimidate", {
+    actor: "player", amount: 1,
+    target: { zone: "board", side: "ai", index: 0 }
+  }],
+  ["status:empty-fort", {
+    actor: "player", side: "player", phase: "armed",
+    target: { zone: "hero", side: "player" }
+  }],
+  ["status:raid", {
+    actor: "player", phase: "pending",
+    target: { zone: "board", side: "ai", index: 2 }
+  }]
+];
+tacticalEvents.forEach(([type, detail]) => tacticalFx.handleEvent(type, detail));
+let tacticalDebug = tacticalFx._debug();
+const expectedTacticalKinds = [
+  "formation-place", "formation-block", "faction-link", "duel-start", "duel-hit",
+  "status-burn", "status-counter", "status-intimidate", "status-empty-fort", "status-raid"
+];
+expectedTacticalKinds.forEach((kind) => {
+  assert.ok(tacticalDebug.jobKinds.includes(kind), `${kind} owns a semantic timeline`);
+});
+assert.ok(
+  tacticalDebug.timelines.every((timeline) => timeline.duration > 0 && timeline.duration <= 0.8),
+  "every new tactical cue stays within the 0.8 second contract"
+);
+const placementCue = tacticalDebug.timelines.find((timeline) => timeline.kind === "formation-place");
+assert.equal(placementCue.x, 345);
+assert.equal(placementCue.y, 480);
+assert.equal(placementCue.row, "rear");
+assert.equal(placementCue.slot, 2);
+assert.equal(placementCue.signature, "formation:rear:place");
+assert.equal(
+  JSON.stringify(tacticalDebug.timelines
+    .filter((timeline) => timeline.kind === "faction-link")
+    .map((timeline) => timeline.linkKind)),
+  JSON.stringify(["brotherhood", "strategy", "kindle", "raid"]),
+  "four faction links keep distinct semantic signatures"
+);
+
+const beforeSemanticEffect = tacticalFx._debug().jobs;
+tacticalFx.handleEvent("effect:trigger", {
+  actor: "player", source: "semantic-duel", op: "duel_target",
+  result: { success: true, fizzled: false }
+});
+assert.equal(tacticalFx._debug().jobs, beforeSemanticEffect,
+  "successful signature ops defer to their semantic event instead of doubling visuals");
+tacticalFx.handleEvent("effect:trigger", {
+  actor: "player", source: "failed-duel", op: "duel_target",
+  result: { success: false, fizzled: true }
+});
+assert.equal(tacticalFx._debug().timelines.at(-1).kind, "effect",
+  "failed signature ops retain the readable generic fizzle cue");
+
+const tacticalContext = makeContext();
+advanceFX(tacticalFx, 0.18);
+tacticalFx.render(tacticalContext);
+assert.ok((tacticalContext.calls.stroke || 0) >= 45,
+  "tactical contact frame has distinct formation, link, duel, and status line work");
+assert.ok((tacticalContext.calls.fill || 0) >= 12,
+  "tactical contact frame includes readable fire, seals, and labels");
+assert.equal(tacticalContext.samples.nonFiniteArguments, 0);
+assert.equal(tacticalContext.calls.save, tacticalContext.calls.restore);
+assert.ok(tacticalFx._debug().particles <= 420);
+advanceFX(tacticalFx, 1.1);
+assert.equal(tacticalFx.hasActiveVisuals(), false,
+  "all tactical timelines and their short particle tails fully expire");
+tacticalFx.destroy();
+
+const reducedTacticalContext = makeContext();
+const reducedTactical = moduleApi.createFX({
+  canvas: { width: 1200, height: 700 },
+  getAnchor: tacticalAnchor,
+  reducedMotion: true
+});
+tacticalEvents.forEach(([type, detail]) => reducedTactical.handleEvent(type, detail));
+assert.ok(
+  reducedTactical._debug().timelines.every((timeline) => timeline.duration <= 0.35),
+  "reduced motion abbreviates every tactical timeline"
+);
+advanceFX(reducedTactical, 0.08);
+reducedTactical.render(reducedTacticalContext);
+assert.equal(reducedTactical._debug().shake.x, 0);
+assert.equal(reducedTactical._debug().shake.y, 0);
+assert.ok(reducedTactical._debug().particles <= 24);
+assert.equal(reducedTacticalContext.samples.nonFiniteArguments, 0);
+assert.equal(reducedTacticalContext.calls.save, reducedTacticalContext.calls.restore);
+advanceFX(reducedTactical, 0.9);
+assert.equal(reducedTactical.hasActiveVisuals(), false);
+reducedTactical.destroy();
+
 // Stress many full matches: fixed pool and capped timelines may never grow.
 for (let turn = 0; turn < 1200; turn += 1) {
   fx.handleEvent("card:play", { instanceId: "stress-" + turn });

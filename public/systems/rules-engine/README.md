@@ -49,16 +49,46 @@ const game = createGame({
 기존 액션 계약은 그대로 유지됩니다.
 
 ```js
-{ type: "playCard", side, handIndex, target? }
+{ type: "playCard", side, handIndex, target?, placement?: { row, slot } }
 { type: "attack", side, attackerIndex, target }
 { type: "endTurn", side }
 ```
 
+양측 전장은 `front` 3칸과 `rear` 3칸, 총 6칸입니다. `placement`를 생략하거나
+이미 찬 칸을 요청하면 `front` 0→2, `rear` 0→2 순서의 첫 빈칸에 자동
+배치됩니다. `getLegalActions()`는 카드·대상 조합마다 모든 빈 배치를 돌려줍니다.
+토큰 소환과 탈취 장수도 같은 자동 배치를 사용하며 장수 상태에는 `row`, `slot`이
+항상 기록됩니다.
+
 ### 카드 키워드와 신규 효과
 
-`keywords`에 `"저격"`이 있는 장수는 적 전장에 `"수호"` 장수가 있어도 적
-지휘관을 직접 공격할 수 있습니다. 수호가 지키는 다른 비수호 장수까지 공격할 수
-있는 것은 아니며, 지휘관과 수호 장수만 법적 공격 대상으로 생성됩니다.
+적 전열 장수가 한 명이라도 있으면 일반 장수는 적 후열 장수를 공격할 수 없습니다.
+`"저격"` 또는 `"돌파"`는 전열 보호를 무시하지만, `"수호"`가 있으면 언제나
+수호 장수만 공격할 수 있습니다. 즉 수호는 저격·돌파보다 우선합니다.
+
+### 진영 연계와 고유 행동
+
+다음 데이터 주도 DSL을 지원합니다.
+
+```js
+{ trigger: "onPlay", op: "faction_link", linkKind: "brotherhood" }
+{ trigger: "onPlay", op: "duel_target", target: "enemyMinion" }
+{ trigger: "onPlay", op: "weaken_enemy_front", amount: 1, duration: "nextEnemyTurnEnd" }
+{ trigger: "onPlay", op: "empty_fort", requiredRow: "rear", requiresSolo: true, charges: 1 }
+{ trigger: "onPlay", op: "patience_counter", maxStored: 2 }
+{ trigger: "onPlay", op: "apply_burning_all", amount: 1 }
+```
+
+`faction_link`는 같은 진영의 다른 아군이 이미 있을 때만 발동합니다. 촉의
+`brotherhood`는 두 장수의 체력을 +1, 위의 `strategy`는 손의 최고 비용 카드
+비용을 1 감소(최소 1), 오의 `kindle`은 적에게 화상 1, 이민족의 `raid`는 다음
+공격권 1회를 차감합니다. 군웅·남만·이민족은 같은 연계 집단입니다.
+
+화상은 소유자 턴 종료에 중첩만큼 피해를 주고 1 감소합니다. `patience_counter`는
+처음 받은 실제 피해 중 최대 지정량을 저장해 다음 아군 턴 시작에 되돌려 줍니다.
+`combat: { attacksPerTurn: 2, secondAttackSelfDamage: 2 }`는 매 턴 두 번 공격과
+두 번째 공격 후 턴 종료 반동을 선언합니다. `buff_self`의 `requiredRow: "rear"`,
+`duration: "thisTurn"`도 지원합니다.
 
 적 장수 선택 효과는 카드 또는 능력의 `target`에 `"enemyMinion"`을 사용합니다.
 
@@ -142,6 +172,11 @@ const game = createGame({
 - `commander:power`: 능력 ID, 비용, 대상, 실제 결과, 남은 마나
 - `commander:reflect`: 반사 전후 횟수, 공격자, 방패 포함 실제 피해 결과
 - `commander:lock`: `pending` 또는 `active` 상태와 봉쇄 대상
+- `formation:place`, `formation:block`: 배치와 전열 보호
+- `faction:link`: 실제 발동한 연계 종류와 결과
+- `duel:start`, `duel:hit`: 일기토 시작과 동시 피해 결과
+- `status:burn`, `status:counter`, `status:intimidate`, `status:empty-fort`,
+  `status:raid`: 턴 경계 상태 변화
 
 손권의 피해는 적 영웅과 전장 전체를 하나의 동시 피해 묶음으로 처리합니다. 유비의
 반사도 영웅 공격 피해와 같은 해결 묶음에 들어갑니다. 이 과정에서 생긴 모든 죽음의
