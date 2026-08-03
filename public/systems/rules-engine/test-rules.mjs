@@ -166,6 +166,24 @@ const definitions = [
     ],
   },
   {
+    id: "selective-charmer",
+    name: "고위 장수의 매혹",
+    faction: "군웅",
+    cost: 0,
+    attack: 1,
+    health: 2,
+    keywords: [],
+    target: "enemyMinion",
+    abilities: [
+      {
+        trigger: "onPlay",
+        op: "steal_enemy_minion",
+        minCost: 3,
+        target: "enemyMinion",
+      },
+    ],
+  },
+  {
     id: "crowded-charmer",
     name: "만석의 매혹",
     faction: "군웅",
@@ -690,6 +708,73 @@ function testStealBoardCapacityAndMaxCostValidation() {
   assertCompleteEffectPayload(greedyEffect.detail);
   assert.equal(greedyEffect.detail.result.maxCost, 1);
   assert.equal(greedyEffect.detail.result.targetCost, 1);
+}
+
+function testStealMinimumCostValidation() {
+  const cheapGame = createGame({
+    definitions,
+    tokens,
+    playerDeck: deckOf("selective-charmer"),
+    aiDeck: deckOf("charger"),
+    seed: 337,
+  });
+  cheapGame.endTurn("player");
+  playFirst(cheapGame, "playCard");
+  cheapGame.endTurn("ai");
+  assert.equal(cheapGame.getState().boards.ai[0].cost, 1);
+  assert.equal(
+    cheapGame.getLegalActions().some((action) => action.type === "playCard"),
+    false,
+    "비용 3 미만 장수는 매혹의 법적 대상으로 생성되면 안 된다",
+  );
+  const cheapCharmIndex = cheapGame
+    .getState()
+    .hands.player.findIndex((card) => card.id === "selective-charmer");
+  const cheapAttempt = cheapGame.playCard("player", cheapCharmIndex, {
+    zone: "board",
+    side: "ai",
+    index: 0,
+  });
+  assert.equal(cheapAttempt.ok, false);
+  assert.equal(cheapAttempt.error, "invalid_target");
+
+  const eliteEvents = [];
+  const eliteGame = createGame({
+    definitions,
+    tokens,
+    playerDeck: deckOf("selective-charmer"),
+    aiDeck: deckOf("expensive"),
+    seed: 338,
+    emit: (type, detail) => eliteEvents.push({ type, detail }),
+  });
+  for (let loop = 0; loop < 12 && eliteGame.getState().boards.ai.length === 0; loop += 1) {
+    const side = eliteGame.getState().turn;
+    const expensivePlay = eliteGame
+      .getLegalActions()
+      .find((action) => action.type === "playCard" && side === "ai");
+    if (expensivePlay) eliteGame.applyAction(expensivePlay);
+    eliteGame.endTurn(side);
+  }
+  assert.equal(eliteGame.getState().boards.ai[0].cost, 4);
+  const eliteCharm = eliteGame
+    .getLegalActions()
+    .find(
+      (action) =>
+        action.type === "playCard" &&
+        action.target?.zone === "board" &&
+        action.target.side === "ai",
+    );
+  assert.ok(eliteCharm, "비용 3 이상 장수는 매혹 대상으로 제공되어야 한다");
+  assert.equal(eliteGame.applyAction(eliteCharm).ok, true);
+  assert.ok(eliteGame.getState().boards.player.some((minion) => minion.id === "expensive"));
+  const charmEffect = eliteEvents.find(
+    (event) =>
+      event.type === "effect:trigger" &&
+      event.detail.op === "steal_enemy_minion",
+  );
+  assert.ok(charmEffect);
+  assert.equal(charmEffect.detail.result.minCost, 3);
+  assert.equal(charmEffect.detail.result.targetCost, 4);
 }
 
 function testGrantAllAlliesArmorAndDamageAbsorption() {
@@ -1947,6 +2032,7 @@ testTargetingGuardShieldAndCombat();
 testSnipeBypassesGuardForCommanderOnly();
 testStealEnemyMinionAndDelayedAttack();
 testStealBoardCapacityAndMaxCostValidation();
+testStealMinimumCostValidation();
 testGrantAllAlliesArmorAndDamageAbsorption();
 testAttackingShieldMinionBlocksRetaliation();
 testDslSummonsDrawBuffAndDeath();

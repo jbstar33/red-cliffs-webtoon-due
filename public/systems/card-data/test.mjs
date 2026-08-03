@@ -89,13 +89,15 @@ assert.deepEqual(byId.wei_xiahou_yuan.keywords, ["저격"]);
 assert.equal(byId.wei_xiahou_yuan.faction, "위");
 
 assert.equal(byId.qun_diao_chan.name, "초선");
+assert.equal(byId.qun_diao_chan.cost, 5);
 assert.equal(byId.qun_diao_chan.target, "enemyMinion");
 assert.deepEqual(byId.qun_diao_chan.abilities, [{
   trigger: "onPlay",
   op: "steal_enemy_minion",
+  minCost: 3,
   target: "enemyMinion"
 }]);
-assert.match(byId.qun_diao_chan.text, /가져옵니다.*다음 내 턴부터 공격/);
+assert.match(byId.qun_diao_chan.text, /비용이 3 이상.*가져옵니다.*다음 내 턴부터 공격/);
 
 assert.equal(byId.shu_pang_tong.name, "방통");
 assert.equal(byId.shu_pang_tong.faction, "촉");

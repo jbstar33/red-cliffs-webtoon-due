@@ -284,6 +284,7 @@
             token_missing: "소환 대상 없음",
             board_full: "전장 가득 참",
             target_cost_exceeded: "대상 비용 초과",
+            target_cost_below_minimum: "대상 비용 부족",
             no_draw_requested: "뽑을 카드 없음",
             unsupported_op: "지원하지 않는 효과",
           };
@@ -885,6 +886,10 @@
             op === "steal_enemy_minion_max_cost"
               ? Math.max(0, numberOr(ability.maxCost, 0))
               : null;
+          const minCost =
+            op === "steal_enemy_minion" && ability.minCost != null
+              ? Math.max(0, numberOr(ability.minCost, 0))
+              : null;
           const selectedCost = preview.selected
             ? Math.max(
                 0,
@@ -908,12 +913,19 @@
             preview.result.reason = "target_cost_exceeded";
             preview.result.maxCost = maxCost;
             preview.result.targetCost = selectedCost;
+          } else if (minCost != null && selectedCost < minCost) {
+            preview.result.success = false;
+            preview.result.fizzled = true;
+            preview.result.reason = "target_cost_below_minimum";
+            preview.result.minCost = minCost;
+            preview.result.targetCost = selectedCost;
           } else if (state.boards[side].length >= BOARD_LIMIT) {
             preview.result.success = false;
             preview.result.fizzled = true;
             preview.result.reason = "board_full";
           } else {
             preview.result.maxCost = maxCost;
+            preview.result.minCost = minCost;
             preview.result.targetCost = selectedCost;
             preview.result.stolenTarget = {
               id: preview.selected.entity.id,
@@ -1347,6 +1359,17 @@
         return ability ? Math.max(0, numberOr(ability.maxCost, 0)) : null;
       }
 
+      function targetMinCost(card) {
+        const abilities = Array.isArray(card.abilities) ? card.abilities : [];
+        const ability = abilities.find(
+          (candidate) =>
+            candidate &&
+            candidate.op === "steal_enemy_minion" &&
+            candidate.minCost != null,
+        );
+        return ability ? Math.max(0, numberOr(ability.minCost, 0)) : null;
+      }
+
       function legalCardTargets(card, side) {
         const kind = cardTargetKind(card);
         if (kind === "none") return [null];
@@ -1358,6 +1381,7 @@
               ? [side]
               : SIDES;
         const maxCost = targetMaxCost(card);
+        const minCost = targetMinCost(card);
         const targets = [];
         sides.forEach((targetSide) => {
           if (targetKind === "any") targets.push({ zone: "hero", side: targetSide });
@@ -1365,6 +1389,12 @@
             if (
               maxCost != null &&
               Math.max(0, numberOr(minion.currentCost, numberOr(minion.cost, 0))) > maxCost
+            ) {
+              return;
+            }
+            if (
+              minCost != null &&
+              Math.max(0, numberOr(minion.currentCost, numberOr(minion.cost, 0))) < minCost
             ) {
               return;
             }

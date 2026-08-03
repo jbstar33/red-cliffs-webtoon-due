@@ -560,7 +560,7 @@ test("pinned inspector blocks click-through and closing clears armed selection",
   assert.ok(panelHit > previewStart);
   assert.ok(closeHit > panelHit);
   assert.match(source, /if \(hit\.type === "inspection-panel"\) return;/);
-  assert.match(source, /function closeInspection\(announce\) \{[\s\S]{0,360}inspection = null;[\s\S]{0,80}cancelSelection\(\)/);
+  assert.match(source, /function closeInspection\(announce\) \{[\s\S]{0,560}inspection = null;[\s\S]{0,100}cancelSelection\(\)/);
 });
 
 test("the player commander redraws above every hand card while vital gems stay last", () => {
@@ -829,11 +829,14 @@ test("dispatches guard-blocked attacks while allowing snipers to target the comm
   assert.match(source, /const color = allowed \? "#ffdd73" : "#ee644f"/);
 });
 
-test("restricts targeted steals to legal enemy board cards and Dong Zhuo's cost limit", () => {
+test("restricts targeted steals to legal enemy board cards and both charm cost limits", () => {
   assert.match(source, /targetKind === "enemyMinion"/);
   assert.match(source, /target\.side !== "ai" \|\| target\.zone !== "board"/);
   assert.match(source, /ability\.op === "steal_enemy_minion_max_cost"/);
   assert.match(source, /if \(targetCost > maxCost\) return false/);
+  assert.match(source, /ability\.op === "steal_enemy_minion"/);
+  assert.match(source, /ability\.minCost != null/);
+  assert.match(source, /if \(targetCost < minCost\) return false/);
 });
 
 test("shows Pang Tong armor on board cards and in the inspector", () => {
@@ -1136,7 +1139,12 @@ test("maps every runtime reason and outcome to Korean without exposing internal 
   assert.doesNotMatch(source, /drawCenteredText\(ctx, state\.reason/);
   assert.match(source, /eventDetail\.message = localizedEventMessage/);
   assert.match(source, /const sharedFXFeedback = Boolean/);
-  assert.match(source, /type === "action:invalid"[\s\S]{0,1400}if \(sharedFXFeedback\)[\s\S]{0,260}toast = null/);
+  const invalidStart = source.indexOf('} else if (type === "action:invalid")');
+  const invalidEnd = source.indexOf('type === "game:end"', invalidStart);
+  const invalidBranch = source.slice(invalidStart, invalidEnd);
+  assert.ok(invalidStart >= 0 && invalidEnd > invalidStart);
+  assert.match(invalidBranch, /if \(sharedFXFeedback\)/);
+  assert.match(invalidBranch, /toast = null/);
 });
 
 test("names played and fallen generals when lifecycle payloads identify them", () => {

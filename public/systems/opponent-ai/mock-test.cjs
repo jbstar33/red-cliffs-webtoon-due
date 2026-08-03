@@ -121,8 +121,11 @@ function simulateFrom(state) {
         }
         if (ability.op === "gain_armor") next.heroes.ai.armor += ability.amount;
         if (ability.op === "steal_enemy_minion") {
-          const stolen = next.boards.player.splice(action.target.index, 1)[0];
-          if (stolen) {
+          const candidate = next.boards.player[action.target.index];
+          const candidateCost = Number(candidate && (candidate.currentCost ?? candidate.cost ?? 0));
+          const minimumCost = ability.minCost == null ? 0 : Number(ability.minCost);
+          if (candidate && candidateCost >= minimumCost) {
+            const stolen = next.boards.player.splice(action.target.index, 1)[0];
             stolen.canAttack = false;
             stolen.attacksLeft = 0;
             next.boards.ai.push(stolen);
@@ -434,14 +437,14 @@ function choose(state, actions, seed) {
 
 {
   const state = baseState();
-  state.heroes.ai.mana = 4;
+  state.heroes.ai.mana = 5;
   state.heroes.ai.maxMana = 6;
   state.hands.ai = [card(
     "qun_diao_chan",
-    4,
+    5,
     2,
     3,
-    [{ trigger: "onPlay", op: "steal_enemy_minion", target: "enemyMinion" }],
+    [{ trigger: "onPlay", op: "steal_enemy_minion", minCost: 3, target: "enemyMinion" }],
     "enemyMinion",
   )];
   state.boards.player = [

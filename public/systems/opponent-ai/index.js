@@ -1326,9 +1326,13 @@
         value += target.side === AI_SIDE && target.zone === "board" ? buff : -20;
         if (target.side === AI_SIDE && entity.canAttack) value += finite(ability.attack, 0) * 0.65;
       } else if (ability.op === "steal_enemy_minion") {
-        value += target.side === PLAYER_SIDE
+        const minCost = ability.minCost == null
+          ? null
+          : Math.max(0, finite(ability.minCost, 0));
+        const targetCost = Math.max(0, finite(entity.currentCost, finite(entity.cost, 0)));
+        value += target.side === PLAYER_SIDE && (minCost == null || targetCost >= minCost)
           ? 8 + minionValue(entity) * 1.35
-          : -40;
+          : -60;
       } else if (ability.op === "steal_enemy_minion_max_cost") {
         const maxCost = Math.max(0, finite(ability.maxCost, 1));
         const targetCost = Math.max(0, finite(entity.currentCost, finite(entity.cost, 0)));

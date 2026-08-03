@@ -9364,15 +9364,24 @@
         if (target.side !== "ai" || target.zone !== "board") return false;
         const targetMinion = (state.boards && state.boards.ai || [])[target.index];
         if (!targetMinion) return false;
-        const constrainedSteal = abilities.find(
+        const maximumCostSteal = abilities.find(
           (ability) => ability.op === "steal_enemy_minion_max_cost",
         );
-        if (constrainedSteal) {
-          const maxCost = Math.max(0, Number(constrainedSteal.maxCost || 0));
-          const targetCost = Number(
-            getCardValue(targetMinion, "currentCost", getCardValue(targetMinion, "cost", 0)),
-          );
+        const minimumCostSteal = abilities.find(
+          (ability) =>
+            ability.op === "steal_enemy_minion" &&
+            ability.minCost != null,
+        );
+        const targetCost = Number(
+          getCardValue(targetMinion, "currentCost", getCardValue(targetMinion, "cost", 0)),
+        );
+        if (maximumCostSteal) {
+          const maxCost = Math.max(0, Number(maximumCostSteal.maxCost || 0));
           if (targetCost > maxCost) return false;
+        }
+        if (minimumCostSteal) {
+          const minCost = Math.max(0, Number(minimumCostSteal.minCost || 0));
+          if (targetCost < minCost) return false;
         }
         return true;
       }

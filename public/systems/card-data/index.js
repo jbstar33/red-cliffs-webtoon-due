@@ -856,9 +856,9 @@
     },
     {
       id: "qun_diao_chan", name: "초선", courtesy: "", faction: "군웅",
-      cost: 3, attack: 1, health: 3, rarity: "전설", role: "연환미인",
+      cost: 5, attack: 1, health: 3, rarity: "전설", role: "연환미인",
       flavor: "달빛 아래의 한 걸음이 적의 충성을 흔든다.", keywords: [], target: "enemyMinion",
-      abilities: [{ trigger: "onPlay", op: "steal_enemy_minion", target: "enemyMinion" }],
+      abilities: [{ trigger: "onPlay", op: "steal_enemy_minion", minCost: 3, target: "enemyMinion" }],
       palette: { primary: "#793C67", secondary: "#E9C7B2", glow: "#FF9ACD" },
       portrait: { motif: "달빛과 흩날리는 모란", weapon: "칠보 부채", temperament: "우아한 결단" }
     },
@@ -1142,7 +1142,11 @@
           "이전 턴부터 전장에 있었고 이번 턴 이미 공격을 마친 무작위 다른 아군 하수인 하나를 다시 공격할 수 있게 합니다. 조건에 맞는 다른 아군이 없으면 발동하지 않습니다."
         );
       case "steal_enemy_minion":
-        return prefix + "선택한 적 하수인 하나를 내 전장으로 가져옵니다. 가져온 하수인은 다음 내 턴부터 공격할 수 있습니다.";
+        return prefix +
+          (ability.minCost == null
+            ? "선택한 적 하수인 하나를 내 전장으로 가져옵니다."
+            : "비용이 " + ability.minCost + " 이상인 선택한 적 하수인 하나를 내 전장으로 가져옵니다.") +
+          " 가져온 하수인은 다음 내 턴부터 공격할 수 있습니다.";
       case "grant_all_allies_armor":
         return prefix + "모든 아군 하수인의 방어력을 +" + ability.amount + " 합니다.";
       case "steal_enemy_minion_max_cost":
@@ -1238,7 +1242,10 @@
           "지난 턴부터 있던 공격 완료 다른 아군 1명 무작위로 다시 공격 가능"
         );
       case "steal_enemy_minion":
-        return prefix + "적 하수인 1명 매혹(다음 턴 공격)";
+        return prefix +
+          (ability.minCost == null
+            ? "적 하수인 1명 매혹(다음 턴 공격)"
+            : "비용 " + ability.minCost + " 이상 적 하수인 1명 매혹");
       case "grant_all_allies_armor":
         return prefix + "모든 아군 방어력 +" + ability.amount;
       case "steal_enemy_minion_max_cost":
@@ -1350,7 +1357,7 @@
       "wei_xun_yu",
       "wei_xiahou_yuan",
       "wu_sun_quan",
-      "wu_zhou_yu",
+      "wu_gan_ning",
       "wu_huang_gai",
       "wu_sun_shangxiang",
       "nanman_meng_huo",
@@ -1503,6 +1510,13 @@
       !isIntegerInRange(ability.maxCost, 0, 10)
     ) {
       errors.push(path + ": maxCost는 0~10 정수여야 함");
+    }
+    if (
+      ability.op === "steal_enemy_minion" &&
+      ability.minCost != null &&
+      !isIntegerInRange(ability.minCost, 0, 10)
+    ) {
+      errors.push(path + ": minCost는 0~10 정수여야 함");
     }
   }
 
@@ -1728,7 +1742,9 @@
       if (ability.op === "gain_armor") score += amount * 0.5;
       if (ability.op === "reduce_random_hand_cost") score += amount * 0.8;
       if (ability.op === "ready_random_friendly") score += 2.5;
-      if (ability.op === "steal_enemy_minion") score += 3;
+      if (ability.op === "steal_enemy_minion") {
+        score += ability.minCost == null ? 3 : 4.7;
+      }
       if (ability.op === "grant_all_allies_armor") score += amount * 1.5;
       if (ability.op === "steal_enemy_minion_max_cost") {
         score += (ability.maxCost || 0) * 1.2;
