@@ -150,6 +150,12 @@ test("implements the integration contract and required controls", () => {
   assert.match(source, /pointerup/);
   assert.match(source, /prefers-reduced-motion/);
   assert.match(source, /aria-live/);
+  assert.match(source, /type === "turn:timer"/);
+  assert.match(source, /남은 시간 \$\{Math\.max\(0, Number\(turnTimer\.seconds\)/);
+  assert.match(source, /"turn:timeout": "시간 초과/);
+  assert.match(source, /전열 배치 · 공격력 \+1/);
+  assert.match(source, /후열 배치 · 방어력 \+1/);
+  assert.match(source, /후열 수호: 이 장수가 후열과 지휘관만 보호/);
 });
 
 test("ships a distinct procedural portrait archetype for every playable general", () => {
@@ -356,7 +362,7 @@ test("normalizes exact keyword glossary segments once across all nineteen inspec
   assert.equal(hooks.normalizeInspectorAbilityText(nearMiss, nearMissDetails), nearMiss.text);
 });
 
-test("integrates exact normalization with all fifty production card-data texts and glossary", () => {
+test("integrates exact normalization with all sixty production card-data texts and glossary", () => {
   const sandbox = { globalThis: {} };
   vm.runInNewContext(source, sandbox, { filename: "board-ui/index.js" });
   vm.runInNewContext(cardDataSource, sandbox, { filename: "card-data/index.js" });
@@ -364,7 +370,7 @@ test("integrates exact normalization with all fifty production card-data texts a
   const cardData = sandbox.globalThis.TK.modules.cardData;
   const cards = Array.from(cardData.getCards());
   const glossary = cardData.getKeywordGlossary();
-  assert.equal(cards.length, 50);
+  assert.equal(cards.length, 60);
   cards.forEach((card) => {
     const details = hooks.resolveCardKeywordDetails(card, glossary);
     const model = hooks.inspectorContentModel(card, details);
@@ -558,11 +564,12 @@ test("all nineteen normalized inspector layouts fit without phantom ability spac
 
 test("mock exercises all portraits and representative long-form card text", () => {
   const ids = mockSource.match(/\["(?:shu|wei|wu|nanman|qun)_[a-z_]+"/g) || [];
-  assert.equal(ids.length, 50);
-  assert.match(mockSource, /aria-label="50인 초상 검수 갤러리"/);
+  assert.equal(ids.length, 60);
+  assert.match(mockSource, /aria-label="60인 초상 검수 갤러리"/);
   for (const id of [
     "shu_ma_chao", "wei_xu_zhu", "wu_lu_xun", "nanman_meng_huo",
     "nanman_zhu_rong", "nanman_wu_tu_gu", "nanman_mu_lu", "nanman_a_hui_nan",
+    "shu_xu_shu", "wei_deng_ai", "wu_sun_ce", "qun_zhang_jiao",
   ]) {
     assert.match(mockSource, new RegExp(`${id}:`));
   }
@@ -785,7 +792,7 @@ test("all production portraits and the Jiangdong token survive uncached preview,
     health: 1,
     cost: 0,
   };
-  assert.equal(cards.length, 50);
+  assert.equal(cards.length, 60);
   assert.ok(hooks.portraitArchetype(jiangdongMarine).archetype);
   assert.equal(hooks.portraitArchetype(nanmanBeast).archetype, "jungle-beast-horned");
   assert.deepEqual(
@@ -1135,7 +1142,7 @@ test("serializes combat presentation, keeps death ghosts non-interactive, and lo
   assert.match(source, /function canArmHandSelection[\s\S]{0,230}!isPresentationLocked/);
   assert.match(source, /const enabled = state\.phase[\s\S]{0,180}!isPresentationLocked\(now\)/);
   assert.match(source, /presentationWait[\s\S]{0,900}"전투 처리 중"/);
-  assert.match(source, /presentationWait \? "RESOLVING" : "WAIT"/);
+  assert.match(source, /presentationWait\s*\?\s*"RESOLVING"/);
 });
 
 test("drives the complete portrait roster from six skull bases and explicit landmarks", () => {
@@ -1533,8 +1540,8 @@ test("anime-cel v11 replaces the complete portrait construction and busts stale 
   assert.equal(new Set(identities.map((profile) => JSON.stringify(profile))).size, cards.length);
 });
 
-test("bundles premium independent art for all fifty playable cards", () => {
-  assert.match(source, /const ORIGINAL_CARD_ART_VERSION = "original-webtoon-v2-20260802"/);
+test("bundles premium independent art for all sixty playable cards", () => {
+  assert.match(source, /const ORIGINAL_CARD_ART_VERSION = "original-webtoon-v3-20260806"/);
   assert.match(source, /function drawOriginalCardArt\(/);
   assert.match(source, /if \(drawOriginalCardArt\(ctx, x, y, width, height, card, compact\)\) return/);
   assert.match(source, /ORIGINAL_CARD_ART_REFRESHERS\.add\(invalidateBoardFrame\)/);
@@ -1548,15 +1555,15 @@ test("bundles premium independent art for all fifty playable cards", () => {
   const cards = Array.from(sandbox.globalThis.TK.modules.cardData.getCards());
   const assetSources = cards.map((card) => boardModule.testHooks.originalCardArtSource(card));
 
-  assert.equal(cards.length, 50);
-  assert.equal(boardModule.originalCardArtVersion, "original-webtoon-v2-20260802");
+  assert.equal(cards.length, 60);
+  assert.equal(boardModule.originalCardArtVersion, "original-webtoon-v3-20260806");
   const authoredCards = cards.filter((_, index) => assetSources[index]);
   const generatedCards = cards.filter((_, index) => !assetSources[index]);
-  assert.equal(authoredCards.length, 50);
+  assert.equal(authoredCards.length, 60);
   assert.equal(generatedCards.length, 0);
   assert.equal(new Set(assetSources.filter(Boolean)).size, authoredCards.length);
   assert.ok(assetSources.filter(Boolean).every(
-    (asset) => asset.endsWith(`.jpg?v=${boardModule.originalCardArtVersion}`),
+    (asset) => /\.(?:jpg|png)\?v=/.test(asset) && asset.endsWith(boardModule.originalCardArtVersion),
   ));
   assert.equal(
     new Set(generatedCards.map((card) => JSON.stringify(boardModule.testHooks.portraitArchetype(card)))).size,
@@ -1564,10 +1571,15 @@ test("bundles premium independent art for all fifty playable cards", () => {
   );
 
   authoredCards.forEach((card) => {
-    const artUrl = new URL(`../../art/cards/${card.id}.jpg`, import.meta.url);
+    const extension = assetSources[cards.indexOf(card)].includes(".png?") ? "png" : "jpg";
+    const artUrl = new URL(`../../art/cards/${card.id}.${extension}`, import.meta.url);
     const artBytes = fs.readFileSync(artUrl);
     assert.ok(artBytes.length > 200_000, `${card.id} must retain premium illustration detail`);
-    assert.deepEqual(Array.from(artBytes.subarray(0, 3)), [0xff, 0xd8, 0xff]);
+    if (extension === "png") {
+      assert.deepEqual(Array.from(artBytes.subarray(0, 8)), [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+    } else {
+      assert.deepEqual(Array.from(artBytes.subarray(0, 3)), [0xff, 0xd8, 0xff]);
+    }
   });
 });
 

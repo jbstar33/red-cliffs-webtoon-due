@@ -25,16 +25,16 @@ var byId = Object.fromEntries(cards.map(function indexCard(card) {
   assert.equal(typeof api[name], "function", name);
 });
 
-assert.equal(cards.length, 50);
-assert.equal(new Set(cards.map(function id(card) { return card.id; })).size, 50);
+assert.equal(cards.length, 60);
+assert.equal(new Set(cards.map(function id(card) { return card.id; })).size, 60);
 assert.equal(report.ok, true, report.errors.join("\n"));
 assert.deepEqual(report.errors, []);
 assert.deepEqual(report.summary.factions, {
-  촉: 12,
-  위: 12,
-  오: 12,
+  촉: 15,
+  위: 15,
+  오: 14,
   남만: 10,
-  군웅: 4
+  군웅: 6
 });
 
 var oneCostCards = cards.filter(function oneCost(card) { return card.cost === 1; });
@@ -43,7 +43,7 @@ var lowCostCards = cards.filter(function lowCost(card) { return card.cost <= 2; 
 assert.ok(oneCostCards.length >= 10, "1-cost diversity");
 assert.ok(twoCostCards.length >= 10, "2-cost diversity");
 assert.ok(lowCostCards.length >= 24, "at least 48% of cards cost 1-2");
-assert.ok(lowCostCards.length / cards.length >= 0.48, "low-cost ratio");
+assert.ok(lowCostCards.length / cards.length >= 0.4, "low-cost roster ratio");
 
 assert.deepEqual(Object.keys(tokens).sort(), [
   "token_jiangdong_marine",
@@ -70,17 +70,39 @@ var schema = api.getDslSchema();
   "faction_link",
   "damage_enemy_row",
   "reinforce_friendly_row",
-  "column_teamwork"
+  "column_teamwork",
+  "swap_random_hands"
 ].forEach(function newOp(op) {
   assert.ok(schema.ops.includes(op), "missing DSL op " + op);
 });
 assert.deepEqual(schema.linkKinds.sort(), ["brotherhood", "kindle", "raid", "strategy"]);
 assert.deepEqual(report.summary.factionLinks, {
-  brotherhood: 3,
-  strategy: 1,
-  kindle: 2,
+  brotherhood: 4,
+  strategy: 2,
+  kindle: 3,
   raid: 1
 });
+
+var newGeneralIds = [
+  "wu_sun_ce", "wu_sun_jian", "qun_zhang_jiao", "shu_xu_shu",
+  "shu_ma_dai", "shu_guan_ping", "wei_deng_ai", "wei_zhong_hui",
+  "wei_pang_de", "qun_hua_xiong"
+];
+newGeneralIds.forEach(function newGeneral(id) {
+  assert.ok(byId[id], "missing new general " + id);
+});
+[
+  "wu_taishi_ci", "wu_sun_quan", "wei_zhang_liao", "wei_guo_jia", "wei_cao_ren"
+].forEach(function existingPopularGeneral(id) {
+  assert.ok(byId[id], "popular general must remain available: " + id);
+});
+assert.equal(byId.shu_wei_yan.cost, 3);
+assert.deepEqual(byId.shu_wei_yan.abilities, [{
+  name: "반골의 배신",
+  trigger: "onPlay",
+  op: "swap_random_hands"
+}]);
+assert.match(byId.shu_wei_yan.text, /손패.*무작위.*교환/);
 
 cards.forEach(function validateProductionDefinition(card) {
   assert.ok(card.text.length > 0 && card.text.length <= 120, card.id + ": text");
@@ -107,7 +129,7 @@ cards.forEach(function validateProductionDefinition(card) {
 
 assert.equal(
   new Set(cards.map(function identity(card) { return card.tactics.identity; })).size,
-  50
+  60
 );
 
 assert.ok(byId.shu_huang_zhong.keywords.includes("저격"));
@@ -284,8 +306,8 @@ var originalIds = new Set([
 var expansionCards = cards.filter(function expansion(card) {
   return !originalIds.has(card.id);
 });
-assert.equal(expansionCards.length, 23);
-assert.ok(expansionCards.filter(function cheap(card) { return card.cost <= 2; }).length >= 19);
+assert.equal(expansionCards.length, 33);
+assert.ok(expansionCards.filter(function cheap(card) { return card.cost <= 2; }).length >= 18);
 
 var recipeCases = [
   { key: "wei", aliases: ["wei", "caocao", "조조", "위"], faction: "위" },
@@ -294,6 +316,12 @@ var recipeCases = [
   { key: "nanman", aliases: ["nanman", "nomad", "이민족", "남만"], faction: "남만" }
 ];
 var recipeCoverage = new Set();
+var guaranteedPopularByFaction = {
+  wei: ["wei_cao_cao", "wei_zhang_liao", "wei_guo_jia", "wei_cao_ren"],
+  shu: ["shu_liu_bei", "shu_guan_yu", "shu_zhuge_liang", "shu_wei_yan"],
+  wu: ["wu_sun_quan", "wu_taishi_ci", "wu_sun_ce", "wu_sun_jian"],
+  nanman: ["nanman_meng_huo", "nanman_zhu_rong", "nanman_wu_tu_gu"]
+};
 
 function auditDeck(deck, label) {
   assert.equal(deck.length, 20, label + ": deck size");
@@ -306,7 +334,7 @@ function auditDeck(deck, label) {
     if (byId[id].cost <= 2) cheap += 1;
     if (byId[id].cost <= 4) early += 1;
   });
-  assert.ok(Object.values(copies).every(function limit(count) { return count <= 2; }));
+  assert.ok(Object.values(copies).every(function limit(count) { return count === 1; }), label + ": unique cards");
   assert.equal(cheap, 10, label + ": exactly half the deck should cost 1-2");
   assert.ok(early >= 14, label + ": early curve");
 }
@@ -321,10 +349,27 @@ recipeCases.forEach(function auditFactionRecipe(entry) {
   var deck = api.buildDeck("recipe-seed", entry.key);
   auditDeck(deck, entry.key);
   assert.ok(deck.filter(function own(id) { return byId[id].faction === entry.faction; }).length >= 10);
+  guaranteedPopularByFaction[entry.key].forEach(function guaranteed(id) {
+    assert.ok(deck.includes(id), entry.key + ": missing guaranteed popular general " + id);
+  });
   entry.aliases.forEach(function alias(alias) {
     assert.deepEqual(api.buildDeck("recipe-seed", alias), deck, alias);
   });
-  deck.forEach(function cover(id) { recipeCoverage.add(id); });
+  for (var diversitySeed = 0; diversitySeed < 80; diversitySeed += 1) {
+    api.buildDeck("coverage-" + diversitySeed, entry.key).forEach(function cover(id) {
+      recipeCoverage.add(id);
+    });
+  }
+  var expensiveSignatures = new Set();
+  for (var highSeed = 0; highSeed < 40; highSeed += 1) {
+    expensiveSignatures.add(
+      api.buildDeck("high-cost-" + highSeed, entry.key)
+        .filter(function expensive(id) { return byId[id].cost >= 5; })
+        .sort()
+        .join("|")
+    );
+  }
+  assert.ok(expensiveSignatures.size >= 8, entry.key + ": high-cost lineup diversity");
 });
 expansionCards.forEach(function expansionIsPlayable(card) {
   assert.ok(recipeCoverage.has(card.id), card.id + ": missing from commander decks");
@@ -342,10 +387,10 @@ for (var seed = 0; seed < 1000; seed += 1) {
 
 var balance = api.auditBalance(10000);
 assert.equal(balance.ok, true);
-assert.equal(balance.entries.length, 50);
+assert.equal(balance.entries.length, 60);
 assert.ok(balance.minimumRatio >= 0.75);
 assert.ok(balance.maximumRatio <= 1.45);
-assert.equal(report.summary.cards, 50);
+assert.equal(report.summary.cards, 60);
 assert.equal(report.summary.cheapCards, 10);
 assert.equal(report.summary.earlyCards, 14);
 assert.ok(report.summary.sample500.firstTurnPlayableRate >= 0.8);

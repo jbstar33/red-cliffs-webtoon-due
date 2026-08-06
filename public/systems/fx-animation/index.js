@@ -43,7 +43,8 @@
     faction_link: true,
     damage_enemy_row: true,
     reinforce_friendly_row: true,
-    column_teamwork: true
+    column_teamwork: true,
+    swap_random_hands: true
   });
 
   function clamp(value, min, max) {
@@ -1379,7 +1380,7 @@
         target: detail.target,
         color: row === "rear" ? FORMATION_REAR : FORMATION_FRONT,
         secondaryColor: row === "rear" ? STRATEGY_BLUE : PALE_GOLD,
-        label: row === "rear" ? "후열 배치" : "전열 배치",
+        label: row === "rear" ? "후열 · 방어 +1" : "전열 · 공격 +1",
         signature: "formation:" + row + ":place",
         row: row,
         slot: Number.isInteger(detail.slot) ? detail.slot : placement.slot,
@@ -1399,6 +1400,20 @@
         signature: "formation:front-wall",
         layer: LAYER_FEEDBACK,
         cueAt: 0.12
+      });
+    }
+
+    function triggerHandBetrayal(detail) {
+      addTacticalCue("faction-link", 0.78, detail, {
+        target: { zone: "hero", side: detail.side || detail.actor || "player" },
+        fallbackRole: "hero",
+        color: COUNTER_VIOLET,
+        secondaryColor: RED,
+        label: "반골의 배신",
+        signature: "hand:betrayal",
+        linkKind: "betrayal",
+        layer: LAYER_OVERLAY,
+        cueAt: 0.1
       });
     }
 
@@ -1642,6 +1657,9 @@
           break;
         case "formation:place":
           triggerFormationPlace(detail);
+          break;
+        case "hand:betrayal":
+          triggerHandBetrayal(detail);
           break;
         case "formation:block":
           triggerFormationBlock(detail);

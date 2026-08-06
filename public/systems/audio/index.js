@@ -25,6 +25,7 @@
     "guard:block": "guard",
     "minion:death": "death",
     "turn:start": "turn",
+    "turn:timeout": "timer-timeout",
     "game:victory": "victory",
     "game:defeat": "defeat",
     "game:draw": "draw-finale",
@@ -67,6 +68,8 @@
     guard: { duration: 0.38, cooldown: 0.06, same: 2, priority: 3 },
     death: { duration: 0.72, cooldown: 0.07, same: 3, priority: 3 },
     turn: { duration: 0.66, cooldown: 0.12, same: 2, priority: 2 },
+    "timer-tick": { duration: 0.18, cooldown: 0.3, same: 1, priority: 3 },
+    "timer-timeout": { duration: 0.62, cooldown: 0.3, same: 1, priority: 4 },
     victory: { duration: 1.18, cooldown: 0.3, same: 1, priority: 4 },
     defeat: { duration: 1.18, cooldown: 0.3, same: 1, priority: 4 },
     "draw-finale": { duration: 1.12, cooldown: 0.3, same: 1, priority: 4 },
@@ -97,6 +100,7 @@
     "duel-hit": { duration: 0.48, cooldown: 0.045, same: 2, priority: 4 },
     "discord-start": { duration: 0.5, cooldown: 0.06, same: 2, priority: 3 },
     "discord-hit": { duration: 0.5, cooldown: 0.045, same: 2, priority: 4 },
+    "hand-betrayal": { duration: 0.58, cooldown: 0.08, same: 2, priority: 4 },
     "status-burn": { duration: 0.48, cooldown: 0.045, same: 3, priority: 3 },
     "status-counter": { duration: 0.58, cooldown: 0.065, same: 2, priority: 4 },
     "status-intimidate": { duration: 0.62, cooldown: 0.075, same: 2, priority: 3 },
@@ -110,6 +114,7 @@
     "duel-start", "duel-hit", "discord-start", "discord-hit",
     "status-burn", "status-counter", "status-intimidate",
     "status-empty-fort", "status-raid",
+    "timer-tick", "timer-timeout", "hand-betrayal",
   ]);
   const SEMANTIC_AUDIO_OPS = new Set([
     "duel_target",
@@ -122,6 +127,7 @@
     "damage_enemy_row",
     "reinforce_friendly_row",
     "column_teamwork",
+    "swap_random_hands",
   ]);
   const EFFECT_RESULT_DEDUPE_SECONDS = 0.085;
   const TACTICAL_EVENT_DEDUPE_SECONDS = 0.055;
@@ -1837,6 +1843,58 @@
       });
     }
 
+    function soundHandBetrayal(voice, volume) {
+      const now = voice.startAt;
+      noise(voice, {
+        start: now,
+        duration: 0.44,
+        seed: "hand-betrayal:crossed-scrolls",
+        rate: 1.35,
+        filter: "bandpass",
+        frequency: 1760,
+        endFrequency: 430,
+        q: 1.8,
+        gain: 0.062 * volume,
+      });
+      [294, 440, 277].forEach((frequency, index) => {
+        tone(voice, {
+          start: now + 0.035 + index * 0.075,
+          duration: 0.32,
+          frequency,
+          endFrequency: frequency * (index === 1 ? 1.18 : 0.86),
+          type: index === 1 ? "sine" : "triangle",
+          gain: (0.044 - index * 0.006) * volume,
+        });
+      });
+    }
+
+    function soundTimerTick(voice, volume) {
+      const now = voice.startAt;
+      tone(voice, {
+        start: now,
+        duration: 0.15,
+        frequency: 880,
+        endFrequency: 720,
+        type: "square",
+        gain: 0.044 * volume,
+      });
+    }
+
+    function soundTimerTimeout(voice, volume) {
+      const now = voice.startAt;
+      [392, 311, 196].forEach((frequency, index) => {
+        tone(voice, {
+          start: now + index * 0.11,
+          duration: 0.28,
+          frequency,
+          endFrequency: frequency * 0.72,
+          type: index === 2 ? "sawtooth" : "triangle",
+          gain: (0.055 - index * 0.006) * volume,
+        });
+      });
+      addWarDrum(voice, now + 0.24, volume * 0.34, 0.7, "timer-timeout");
+    }
+
     function soundStatusBurn(voice, volume) {
       const now = voice.startAt;
       noise(voice, {
@@ -2153,6 +2211,9 @@
         else if (normalized === "duel-hit") soundDuelHit(voice, volume);
         else if (normalized === "discord-start") soundDiscordStart(voice, volume);
         else if (normalized === "discord-hit") soundDiscordHit(voice, volume);
+        else if (normalized === "hand-betrayal") soundHandBetrayal(voice, volume);
+        else if (normalized === "timer-tick") soundTimerTick(voice, volume);
+        else if (normalized === "timer-timeout") soundTimerTimeout(voice, volume);
         else if (normalized === "status-burn") soundStatusBurn(voice, volume);
         else if (normalized === "status-counter") soundStatusCounter(voice, volume);
         else if (normalized === "status-intimidate") soundStatusIntimidate(voice, volume);
@@ -2643,6 +2704,19 @@
             volume: data.actor === "player" ? 1 : 0.88,
             pitch: pitchForFaction(data.card),
           });
+        case "turn:timer": {
+          const seconds = Math.max(0, Number(data.seconds) || 0);
+          if (seconds <= 0 || seconds > 3) return false;
+          return play("timer-tick", {
+            pitch: 1 + (3 - seconds) * 0.12,
+            volume: 0.82 + (3 - seconds) * 0.08,
+          });
+        }
+        case "turn:timeout":
+          return play("timer-timeout", { volume: 0.96 });
+        case "hand:betrayal":
+          rememberTacticalAbility("swap_random_hands");
+          return playTactical("hand-betrayal", data, { volume: 0.86 });
         case "formation:place":
           return playTactical("formation-place", data);
         case "formation:block":

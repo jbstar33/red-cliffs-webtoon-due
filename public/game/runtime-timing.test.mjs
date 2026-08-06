@@ -25,6 +25,19 @@ function loadCoordinator() {
   return context.TK.runtime.createPresentationCoordinator;
 }
 
+function loadTurnTimer() {
+  const context = {
+    console,
+    document: { getElementById: () => null },
+    globalThis: null,
+    performance: { now: () => 0 },
+  };
+  context.globalThis = context;
+  vm.createContext(context);
+  assert.throws(() => vm.runInContext(source, context), /cardData/);
+  return context.TK.runtime.createTurnTimer;
+}
+
 function createElement(context2d, tracking) {
   const metrics = tracking && tracking.metrics;
   const datasetStore = {};
@@ -152,26 +165,26 @@ function createRuntimeHarness(
         metrics.stateReads += 1;
         return state;
       },
-      getLegalActions: () => {
+      getLegalActions: (side = state.turn) => {
         const type = actionSpec().type;
         if (type === "playCard") {
-          return [{ type, side: "ai", handIndex: 0 }, { type: "endTurn", side: "ai" }];
+          return [{ type, side, handIndex: 0 }, { type: "endTurn", side }];
         }
         if (type === "attack") {
           return [{
             type,
-            side: "ai",
+            side,
             attackerIndex: 0,
-            target: { zone: "hero", side: "player" },
-          }, { type: "endTurn", side: "ai" }];
+            target: { zone: "hero", side: side === "ai" ? "player" : "ai" },
+          }, { type: "endTurn", side }];
         }
-        return [{ type: "endTurn", side: "ai" }];
+        return [{ type: "endTurn", side }];
       },
-      playCard: () => {
+      playCard: (side) => {
         const spec = actionSpec();
-        trace.push({ type: "playCard", at: clock, gameId, spec });
+        trace.push({ type: "playCard", side, at: clock, gameId, spec });
         emit("card:play", {
-          actor: "ai",
+          actor: side,
           card: { name: "제갈량" },
           boardIndex: 0,
         });
@@ -192,14 +205,14 @@ function createRuntimeHarness(
         finishFromSpec(spec);
         return { ok: true };
       },
-      attack: () => {
+      attack: (side) => {
         const spec = actionSpec();
-        const target = { zone: "hero", side: "player" };
-        trace.push({ type: "attack", at: clock, gameId, spec });
+        const target = { zone: "hero", side: side === "ai" ? "player" : "ai" };
+        trace.push({ type: "attack", side, at: clock, gameId, spec });
         emit("attack:start", {
-          actor: "ai",
+          actor: side,
           attackerIndex: 0,
-          attacker: { zone: "board", side: "ai", index: 0 },
+          attacker: { zone: "board", side, index: 0 },
           target,
         });
         emit("hero:damage", {
@@ -221,12 +234,13 @@ function createRuntimeHarness(
         finishFromSpec(spec);
         return { ok: true };
       },
-      endTurn: () => {
-        trace.push({ type: "endTurn", at: clock, gameId });
-        state.turn = "player";
+      endTurn: (side) => {
+        trace.push({ type: "endTurn", side, at: clock, gameId });
+        state.turn = side === "ai" ? "player" : "ai";
+        state.turnNumber += 1;
         state.revision += 1;
-        emit("turn:start", { side: "player" });
-        emit("card:draw", { actor: "player" });
+        emit("turn:start", { side: state.turn });
+        emit("card:draw", { actor: state.turn });
         return { ok: true };
       },
       concede: () => {
@@ -250,7 +264,9 @@ function createRuntimeHarness(
     render(state) {
       trace.push({ type: "render", at: clock, turn: state.turn, gameId: gameCount });
     },
-    handleEvent() {},
+    handleEvent(eventType) {
+      trace.push({ type: "uiEvent", eventType, at: clock, gameId: gameCount });
+    },
     setThinking(value) {
       trace.push({ type: "thinking", value: Boolean(value), at: clock, gameId: gameCount });
     },
@@ -449,6 +465,42 @@ test("presentation coordinator keeps primary cues readable without over-waiting"
   assert.equal(reduced.remaining(), 350);
 });
 
+test("player turn timer counts down ten seconds once and expires with its turn context", () => {
+  const createTurnTimer = loadTurnTimer();
+  let now = 0;
+  let sequence = 0;
+  const timers = [];
+  const ticks = [];
+  const expirations = [];
+  const timer = createTurnTimer({
+    now: () => now,
+    durationMs: 10_000,
+    setTimer(callback, delay) {
+      const scheduled = { id: ++sequence, callback, due: now + delay };
+      timers.push(scheduled);
+      return scheduled.id;
+    },
+    clearTimer(id) {
+      const index = timers.findIndex((scheduled) => scheduled.id === id);
+      if (index >= 0) timers.splice(index, 1);
+    },
+    onTick: (detail) => ticks.push({ seconds: detail.seconds, urgent: detail.urgent }),
+    onExpire: (context) => expirations.push(context),
+  });
+  const turnContext = { epoch: 7, turnNumber: 4 };
+  timer.start(turnContext);
+  while (timers.length) {
+    const scheduled = timers.shift();
+    now = scheduled.due;
+    scheduled.callback();
+  }
+  assert.deepEqual(ticks.map((tick) => tick.seconds), [10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0]);
+  assert.deepEqual(ticks.filter((tick) => tick.urgent).map((tick) => tick.seconds), [3, 2, 1, 0]);
+  assert.deepEqual(expirations, [turnContext]);
+  assert.equal(timer.isActive(), false);
+  assert.equal(timer.remainingMs(), 0);
+});
+
 test("AI actions and turn handoff never outrun their presentation deadline", async () => {
   const harness = createRuntimeHarness();
   await harness.drainUntilIdle();
@@ -484,11 +536,41 @@ test("AI actions and turn handoff never outrun their presentation deadline", asy
       aiBusy: false,
       aiBusyEpoch: 0,
       pendingTimerCount: 0,
+      turnTimerActive: true,
+      turnTimerRemainingMs: 10000,
       presentationRemainingMs: 0,
       presentationLocked: false,
       inputLocked: false,
     },
   );
+});
+
+test("player timeout auto-submits one legal action and then hands the turn to AI", async () => {
+  const harness = createRuntimeHarness(["playCard"], {
+    initialState: { turn: "player" },
+  });
+  assert.equal(harness.context.__TK_GAME_DEBUG__.getRuntimeState().turnTimerActive, true);
+  for (let second = 0; second < 10; second += 1) {
+    await harness.runNextTimer();
+  }
+  const autoPlay = harness.trace.find(
+    (entry) => entry.type === "playCard" && entry.side === "player",
+  );
+  assert.ok(autoPlay, "timeout must commit one non-end-turn player action when available");
+  assert.ok(harness.trace.some(
+    (entry) => entry.type === "uiEvent" && entry.eventType === "turn:timeout",
+  ));
+  let playerEnd = null;
+  for (let waitStep = 0; waitStep < 6 && !playerEnd; waitStep += 1) {
+    await harness.runNextTimer();
+    playerEnd = harness.trace.find(
+      (entry) => entry.type === "endTurn" && entry.side === "player",
+    );
+  }
+  assert.ok(playerEnd);
+  assert.ok(playerEnd.at >= autoPlay.at + 420);
+  assert.equal(harness.context.__TK_GAME_DEBUG__.getState().turn, "ai");
+  assert.equal(harness.context.__TK_GAME_DEBUG__.getRuntimeState().turnTimerActive, false);
 });
 
 test("an obsolete AI coroutine cannot clear a restarted match thinking lock", async () => {
@@ -707,4 +789,7 @@ test("runtime forwards formation placement without coupling board UI to rules", 
   assert.match(source, /"discord:start":\s*720/);
   assert.match(source, /"discord:hit":\s*700/);
   assert.match(source, /"status:empty-fort":\s*760/);
+  assert.match(source, /PLAYER_TURN_LIMIT_MS\s*=\s*10_000/);
+  assert.match(source, /getLegalActions\("player"\)[\s\S]*?filter\(\(action\) => action && action\.type !== "endTurn"\)/);
+  assert.match(source, /broadcast\("turn:timeout"/);
 });

@@ -8,7 +8,7 @@ async function loadBrowserModule(relativePath) {
   vm.runInThisContext(source, { filename: relativePath });
 }
 
-test("50 cards produce a complete, deterministic 20-card faction PvE battle", async () => {
+test("60 cards produce a complete, deterministic 20-card faction PvE battle", async () => {
   globalThis.TK = { modules: {} };
   await loadBrowserModule("../public/systems/card-data/index.js");
   await loadBrowserModule("../public/systems/rules-engine/index.js");
@@ -17,7 +17,7 @@ test("50 cards produce a complete, deterministic 20-card faction PvE battle", as
   const rules = TK.modules.rulesEngine;
   const validation = cards.validate();
   assert.equal(validation.ok, true, validation.errors.join("\n"));
-  assert.equal(cards.getCards().length, 50);
+  assert.equal(cards.getCards().length, 60);
   assert.equal(cards.buildDeck("integration-player", "liubei").length, 20);
 
   const game = rules.createGame({

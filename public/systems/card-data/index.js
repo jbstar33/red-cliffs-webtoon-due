@@ -3,7 +3,7 @@
 
   var KEYWORD_GLOSSARY = Object.freeze({
     돌진: "출전 턴 공격 가능.",
-    수호: "적은 이 장수만 공격 가능.",
+    수호: "전열: 모두 보호. 후열: 후열·지휘관 보호.",
     방패: "처음 받는 피해 1회 무효.",
     저격: "전열 너머 후열 공격 가능.",
     돌파: "전열 너머 후열 공격 가능.",
@@ -38,6 +38,7 @@
     "summon_token",
     "reduce_random_hand_cost",
     "ready_random_friendly",
+    "swap_random_hands",
     "steal_enemy_minion",
     "grant_all_allies_armor",
     "reinforce_friendly_row",
@@ -805,8 +806,9 @@
     },
     {
       id: "shu_wei_yan", name: "위연", courtesy: "문장", faction: "촉",
-      cost: 2, attack: 3, health: 2, rarity: "영웅", role: "돌격장",
-      flavor: "험로를 먼저 넘어 적의 허리를 끊는다.", keywords: [], target: "none", abilities: [],
+      cost: 3, attack: 3, health: 3, rarity: "영웅", role: "돌격장",
+      flavor: "의심의 칼끝이 적과 아군의 계책을 뒤섞는다.", keywords: [], target: "none",
+      abilities: [{ name: "반골의 배신", trigger: "onPlay", op: "swap_random_hands" }],
       palette: { primary: "#783A32", secondary: "#C8A65A", glow: "#FF8D63" },
       portrait: { motif: "험준한 잔도와 붉은 전포", weapon: "장도", temperament: "거침없는 야심" }
     },
@@ -969,6 +971,88 @@
       flavor: "사세삼공의 깃발 아래 군웅의 첫 진을 모은다.", keywords: [], target: "none", abilities: [],
       palette: { primary: "#6B435A", secondary: "#D6B55D", glow: "#D99BC2" },
       portrait: { motif: "연합군의 금빛 대기와 높은 관", weapon: "의장검", temperament: "화려한 자신감" }
+    },
+    {
+      id: "shu_xu_shu", name: "서서", courtesy: "원직", faction: "촉",
+      cost: 3, attack: 2, health: 4, rarity: "영웅", role: "군사",
+      flavor: "한 장의 지도가 숨어 있던 복병의 길을 밝힌다.", keywords: [], target: "none",
+      abilities: [
+        { name: "팔문 해독", trigger: "onPlay", op: "reduce_random_hand_cost", amount: 1 },
+        { trigger: "onPlay", op: "draw", amount: 1 }
+      ],
+      palette: { primary: "#385844", secondary: "#C8B979", glow: "#8FD6A0" },
+      portrait: { motif: "달빛 죽림과 펼친 진도", weapon: "직검과 군도", temperament: "고요한 통찰" }
+    },
+    {
+      id: "shu_ma_dai", name: "마대", courtesy: "", faction: "촉",
+      cost: 3, attack: 4, health: 2, rarity: "희귀", role: "서량기병",
+      flavor: "설령을 가르는 창끝은 퇴로보다 먼저 적을 찾는다.", keywords: ["돌진"], target: "none", abilities: [],
+      palette: { primary: "#456B61", secondary: "#D9DDD4", glow: "#A6E8DA" },
+      portrait: { motif: "서량 설산과 질주하는 녹색 기병", weapon: "은장창", temperament: "빠르고 절제된 추격" }
+    },
+    {
+      id: "shu_guan_ping", name: "관평", courtesy: "", faction: "촉",
+      cost: 3, attack: 3, health: 4, rarity: "영웅", role: "충장",
+      flavor: "청룡의 깃발 아래 아버지의 전열을 이어 지킨다.", keywords: ["수호", "의형제"], target: "none",
+      abilities: [{ trigger: "onPlay", op: "faction_link", linkKind: "brotherhood" }],
+      palette: { primary: "#315A43", secondary: "#B88A4B", glow: "#7ED29A" },
+      portrait: { motif: "폭우 속 청룡기와 성문", weapon: "청월도", temperament: "굳센 충의" }
+    },
+    {
+      id: "wei_deng_ai", name: "등애", courtesy: "사재", faction: "위",
+      cost: 5, attack: 5, health: 5, rarity: "전설", role: "정서장군",
+      flavor: "아무도 길이라 부르지 않은 절벽으로 촉의 뒤를 찌른다.", keywords: [], target: "none",
+      abilities: [{ name: "음평도강", trigger: "onPlay", op: "damage_enemy_row", row: "rear", amount: 1 }],
+      palette: { primary: "#2E4868", secondary: "#B8C5D2", glow: "#86B9F1" },
+      portrait: { motif: "음평의 설벽과 밧줄 부대", weapon: "단창과 행군도", temperament: "험로를 뚫는 집념" }
+    },
+    {
+      id: "wei_zhong_hui", name: "종회", courtesy: "사계", faction: "위",
+      cost: 4, attack: 3, health: 5, rarity: "전설", role: "모사",
+      flavor: "찬란한 재능은 봉인된 명령서 뒤에 야심을 감춘다.", keywords: ["군략"], target: "none",
+      abilities: [
+        { name: "밀령", trigger: "onPlay", op: "draw", amount: 1 },
+        { trigger: "onPlay", op: "faction_link", linkKind: "strategy" }
+      ],
+      palette: { primary: "#303B6B", secondary: "#D6D9E2", glow: "#9AAFFF" },
+      portrait: { motif: "봉인된 명령서와 촉도 지도", weapon: "절월과 세검", temperament: "우아하고 위험한 야심" }
+    },
+    {
+      id: "wei_pang_de", name: "방덕", courtesy: "영명", faction: "위",
+      cost: 5, attack: 6, health: 4, rarity: "영웅", role: "결사장",
+      flavor: "관을 싣고 나선 맹세에는 돌아올 길이 없다.", keywords: ["돌진"], target: "none", abilities: [],
+      palette: { primary: "#283A58", secondary: "#E3E1D8", glow: "#7FA7D8" },
+      portrait: { motif: "번성의 폭우와 흰 맹세띠", weapon: "참마도", temperament: "죽음을 정한 용맹" }
+    },
+    {
+      id: "wu_sun_ce", name: "손책", courtesy: "백부", faction: "오",
+      cost: 6, attack: 6, health: 5, rarity: "전설", role: "소패왕",
+      flavor: "강동의 파도는 젊은 패왕의 창끝에서 시작된다.", keywords: ["돌진", "돌파"], target: "none", abilities: [],
+      palette: { primary: "#225A63", secondary: "#C89B52", glow: "#58D0D6" },
+      portrait: { motif: "폭풍의 장강과 청록 군기", weapon: "패왕창", temperament: "젊고 거침없는 패기" }
+    },
+    {
+      id: "wu_sun_jian", name: "손견", courtesy: "문대", faction: "오",
+      cost: 5, attack: 4, health: 6, rarity: "전설", role: "강동맹호",
+      flavor: "호랑이의 군기는 불타는 성문 앞에서도 물러서지 않는다.", keywords: ["수호", "연화"], target: "none",
+      abilities: [{ trigger: "onPlay", op: "faction_link", linkKind: "kindle" }],
+      palette: { primary: "#315A57", secondary: "#C89143", glow: "#F08B4D" },
+      portrait: { motif: "맹호기와 불타는 산성", weapon: "고정도", temperament: "뜨거운 부성애와 위엄" }
+    },
+    {
+      id: "qun_zhang_jiao", name: "장각", courtesy: "", faction: "군웅",
+      cost: 5, attack: 3, health: 6, rarity: "전설", role: "대현량사",
+      flavor: "누런 깃발이 솟자 하늘의 천둥이 민심에 답한다.", keywords: [], target: "none",
+      abilities: [{ name: "창천벽력", trigger: "onPlay", op: "apply_burning_all", amount: 1, duration: "ownerTurnEnd" }],
+      palette: { primary: "#8A7025", secondary: "#D8C56A", glow: "#78D9FF" },
+      portrait: { motif: "황건의 바다와 갈라진 먹구름", weapon: "구절장과 부적", temperament: "광신적인 카리스마" }
+    },
+    {
+      id: "qun_hua_xiong", name: "화웅", courtesy: "", faction: "군웅",
+      cost: 4, attack: 5, health: 3, rarity: "영웅", role: "맹장",
+      flavor: "사수관의 불길 속에서 거대한 칼날이 먼저 포효한다.", keywords: ["돌진"], target: "none", abilities: [],
+      palette: { primary: "#52282A", secondary: "#B8894A", glow: "#FF6A3C" },
+      portrait: { motif: "불타는 사수관과 검붉은 군기", weapon: "대환도", temperament: "잔혹한 선봉의 기세" }
     }
   ]);
 
@@ -978,6 +1062,13 @@
       plan: "첫 턴부터 전장을 만들면서 영웅 체력을 보전합니다.",
       combo: "수호 하수인 뒤에서 회복으로 장기전을 준비합니다.",
       counter: "영웅 체력이 가득 찼을 때는 능력 가치가 줄어듭니다."
+    },
+    shu_wei_yan: {
+      identity: "패를 뒤섞는 변칙 장수",
+      plan: "출전하면 내 남은 손패 한 장과 상대 손패 한 장을 무작위로 교환합니다.",
+      combo: "당장 쓰기 어려운 고비용 카드가 손에 있을 때 교환 기대값이 커집니다.",
+      counter: "한쪽 손패가 비어 있으면 배신은 불발합니다. 핵심 카드를 지키려면 손패 수를 줄이세요.",
+      placement: "후열 추천 — 배신 뒤 3/3 장수를 방어 +1로 오래 남깁니다."
     },
     shu_guan_yu: {
       identity: "일기토 돌파 장수",
@@ -1337,6 +1428,9 @@
           prefix +
           "이전 턴부터 전장에 있었고 이번 턴 이미 공격을 마친 무작위 다른 아군 하수인 하나를 다시 공격할 수 있게 합니다. 조건에 맞는 다른 아군이 없으면 발동하지 않습니다."
         );
+      case "swap_random_hands":
+        return prefix + (ability.name ? ability.name + " — " : "") +
+          "내 손패와 상대 손패에서 카드 한 장씩 무작위로 골라 서로 교환합니다. 어느 쪽 손패가 비어 있으면 발동하지 않습니다.";
       case "steal_enemy_minion":
         return prefix +
           (ability.name ? ability.name + " — " : "") +
@@ -1498,6 +1592,8 @@
           prefix +
           "지난 턴부터 있던 공격 완료 다른 아군 1명 무작위로 다시 공격 가능"
         );
+      case "swap_random_hands":
+        return prefix + "양쪽 무작위 손패 1장 교환";
       case "steal_enemy_minion":
         return prefix +
           (ability.minCost == null
@@ -1622,59 +1718,29 @@
     };
   }
 
+  var ALL_CARD_IDS = Object.freeze(CARDS.map(function cardId(card) { return card.id; }));
   var DECK_RECIPES = Object.freeze({
-    default: Object.freeze([
-      "shu_guan_yu",
-      "shu_zhuge_liang",
-      "shu_liu_bei",
-      "shu_pang_tong",
-      "shu_fa_zheng",
-      "wei_cao_cao",
-      "wei_sima_yi",
-      "wei_xiahou_dun",
-      "wei_guo_jia",
-      "wei_xun_yu",
-      "wei_xiahou_yuan",
-      "wu_sun_quan",
-      "wu_gan_ning",
-      "wu_huang_gai",
-      "wu_sun_shangxiang",
-      "nanman_meng_huo",
-      "nanman_duo_si",
-      "qun_diao_chan",
-      "qun_dong_zhuo",
-      "qun_yuan_shao"
-    ]),
-    wei: Object.freeze([
-      "wei_cao_cao", "wei_sima_yi", "wei_xiahou_dun", "wei_dian_wei",
-      "wei_zhang_liao", "wei_guo_jia", "wei_xu_zhu", "wei_xiahou_yuan",
-      "wei_yu_jin", "wei_cao_ren", "wei_xun_yu", "wei_li_dian",
-      "qun_diao_chan", "qun_dong_zhuo", "shu_fa_zheng", "shu_huang_zhong",
-      "wu_da_qiao", "wu_lu_meng", "nanman_duo_si", "nanman_jinhuan_sanjie"
-    ]),
-    shu: Object.freeze([
-      "shu_liu_bei", "shu_guan_yu", "shu_zhang_fei", "shu_zhao_yun",
-      "shu_zhuge_liang", "shu_huang_zhong", "shu_ma_chao", "shu_pang_tong",
-      "shu_wei_yan", "shu_jiang_wei", "shu_fa_zheng", "shu_liao_hua",
-      "qun_lu_bu", "qun_yuan_shao", "wei_xun_yu", "wei_xiahou_yuan",
-      "wu_da_qiao", "wu_lu_meng", "nanman_duo_si", "nanman_a_hui_nan"
-    ]),
-    wu: Object.freeze([
-      "wu_sun_quan", "wu_zhou_yu", "wu_gan_ning", "wu_lu_meng",
-      "wu_huang_gai", "wu_sun_shangxiang", "wu_lu_xun", "wu_taishi_ci",
-      "wu_cheng_pu", "wu_da_qiao", "wu_xiao_qiao", "wu_zhou_tai",
-      "qun_diao_chan", "qun_dong_zhuo", "shu_fa_zheng", "shu_huang_zhong",
-      "wei_xun_yu", "wei_xiahou_yuan", "nanman_duo_si", "nanman_a_hui_nan"
-    ]),
-    nanman: Object.freeze([
-      "nanman_meng_huo", "nanman_zhu_rong", "nanman_wu_tu_gu", "nanman_mu_lu",
-      "nanman_a_hui_nan", "nanman_duo_si", "nanman_jinhuan_sanjie",
-      "nanman_mang_ya_chang", "nanman_hua_man", "nanman_dai_lai_dong_zhu",
-      "qun_lu_bu", "qun_diao_chan", "qun_dong_zhuo", "qun_yuan_shao",
-      "shu_fa_zheng", "shu_huang_zhong", "wei_xun_yu", "wei_xiahou_yuan",
-      "wu_da_qiao", "wu_xiao_qiao"
-    ])
+    default: ALL_CARD_IDS,
+    wei: ALL_CARD_IDS,
+    shu: ALL_CARD_IDS,
+    wu: ALL_CARD_IDS,
+    nanman: ALL_CARD_IDS
   });
+  var DECK_FACTION = Object.freeze({ wei: "위", shu: "촉", wu: "오", nanman: "남만" });
+  var DECK_CORES = Object.freeze({
+    default: Object.freeze([]),
+    wei: Object.freeze(["wei_cao_cao", "wei_zhang_liao", "wei_guo_jia", "wei_cao_ren"]),
+    shu: Object.freeze(["shu_liu_bei", "shu_guan_yu", "shu_zhuge_liang", "shu_wei_yan"]),
+    wu: Object.freeze(["wu_sun_quan", "wu_taishi_ci", "wu_sun_ce", "wu_sun_jian"]),
+    nanman: Object.freeze(["nanman_meng_huo", "nanman_zhu_rong", "nanman_wu_tu_gu"])
+  });
+  var DECK_OWN_CURVES = Object.freeze({
+    wei: Object.freeze({ one: 2, two: 2, mid: 3, high: 3 }),
+    shu: Object.freeze({ one: 2, two: 2, mid: 3, high: 3 }),
+    wu: Object.freeze({ one: 3, two: 2, mid: 2, high: 3 }),
+    nanman: Object.freeze({ one: 2, two: 3, mid: 2, high: 3 })
+  });
+  var DECK_TOTAL_CURVE = Object.freeze({ one: 6, two: 4, mid: 4, high: 6 });
 
   function normalizeFaction(faction) {
     var value = String(faction == null ? "" : faction).trim().toLowerCase();
@@ -1704,7 +1770,57 @@
     var random = seededRandom(
       String(seed == null ? "red-cliffs" : seed) + ":" + recipeKey
     );
-    var deck = DECK_RECIPES[recipeKey].slice();
+    var pool = DECK_RECIPES[recipeKey].slice();
+    var deck = [];
+    var selected = Object.create(null);
+
+    function bandFor(id) {
+      var cost = CARD_BY_ID[id].cost;
+      return cost === 1 ? "one" : cost === 2 ? "two" : cost <= 4 ? "mid" : "high";
+    }
+
+    function shuffleIds(ids) {
+      var shuffled = ids.slice();
+      for (var index = shuffled.length - 1; index > 0; index -= 1) {
+        var swapIndex = Math.floor(random() * (index + 1));
+        var current = shuffled[index];
+        shuffled[index] = shuffled[swapIndex];
+        shuffled[swapIndex] = current;
+      }
+      return shuffled;
+    }
+
+    function add(id) {
+      if (!CARD_BY_ID[id] || selected[id]) return false;
+      selected[id] = true;
+      deck.push(id);
+      return true;
+    }
+
+    function bandCount(band) {
+      return deck.filter(function inBand(id) { return bandFor(id) === band; }).length;
+    }
+
+    function fillBand(band, target, predicate) {
+      var candidates = shuffleIds(pool.filter(function eligible(id) {
+        return !selected[id] && bandFor(id) === band && (!predicate || predicate(CARD_BY_ID[id]));
+      }));
+      while (bandCount(band) < target && candidates.length) add(candidates.pop());
+    }
+
+    (DECK_CORES[recipeKey] || []).forEach(add);
+    if (DECK_FACTION[recipeKey]) {
+      var ownFaction = DECK_FACTION[recipeKey];
+      var ownCurve = DECK_OWN_CURVES[recipeKey];
+      ["one", "two", "mid", "high"].forEach(function fillOwn(band) {
+        fillBand(band, ownCurve[band], function ownCard(card) {
+          return card.faction === ownFaction;
+        });
+      });
+    }
+    ["one", "two", "mid", "high"].forEach(function fillCurve(band) {
+      fillBand(band, DECK_TOTAL_CURVE[band]);
+    });
 
     for (var index = deck.length - 1; index > 0; index -= 1) {
       var swapIndex = Math.floor(random() * (index + 1));
@@ -2139,6 +2255,7 @@
       if (ability.op === "gain_armor") score += amount * 0.5;
       if (ability.op === "reduce_random_hand_cost") score += amount * 0.8;
       if (ability.op === "ready_random_friendly") score += 2.5;
+      if (ability.op === "swap_random_hands") score += 0.85;
       if (ability.op === "steal_enemy_minion") {
         score += ability.minCost == null ? 3 : 4.7;
       }
@@ -2307,18 +2424,18 @@
       errors.push("초선은 비용 5와 비용 3 이상 매혹 조건을 유지해야 함");
     }
 
-    if (CARDS.length !== 50) {
-      errors.push("카드 정의는 정확히 50장이어야 함");
+    if (CARDS.length !== 60) {
+      errors.push("카드 정의는 정확히 60장이어야 함");
     }
     var factions = factionCounts(CARDS);
     if (
-      factions["촉"] !== 12 ||
-      factions["위"] !== 12 ||
-      factions["오"] !== 12 ||
+      factions["촉"] !== 15 ||
+      factions["위"] !== 15 ||
+      factions["오"] !== 14 ||
       factions["남만"] !== 10 ||
-      factions["군웅"] !== 4
+      factions["군웅"] !== 6
     ) {
-      errors.push("진영 구성은 촉 12, 위 12, 오 12, 남만 10, 군웅 4여야 함");
+      errors.push("진영 구성은 촉 15, 위 15, 오 14, 남만 10, 군웅 6이어야 함");
     }
 
     var deck = buildDeck("validation-seed");
@@ -2378,6 +2495,11 @@
       }
       if (recipeCheap !== 10 || recipeEarly < 14) {
         errors.push(recipeKey + " 진영 덱의 비용 곡선이 10:10 균형을 벗어남");
+      }
+      for (var diversitySeed = 0; diversitySeed < 80; diversitySeed += 1) {
+        buildDeck("recipe-diversity-" + diversitySeed, recipeKey).forEach(function cover(id) {
+          recipeCoverage[id] = true;
+        });
       }
     });
     CARDS.forEach(function ensureRecipeCoverage(card) {

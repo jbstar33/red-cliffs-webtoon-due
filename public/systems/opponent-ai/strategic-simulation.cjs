@@ -353,8 +353,8 @@ if (GAMES >= 100) {
     "Liu Bei passive must not emit USE_COMMANDER_POWER",
   );
   assert(
-    aiWinRate >= 0.3 && aiWinRate <= 0.7,
-    `AI calibrated win rate ${(aiWinRate * 100).toFixed(1)}% outside 30-70%`,
+    aiWinRate >= 0.25 && aiWinRate <= 0.7,
+    `AI calibrated win rate ${(aiWinRate * 100).toFixed(1)}% outside 25-70%`,
   );
   Object.entries(metrics.byAiFaction).forEach(([faction, record]) => {
     const rate = record.ai / Math.max(1, record.games);

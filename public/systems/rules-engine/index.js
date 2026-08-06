@@ -292,6 +292,7 @@
             requires_solo: "다른 아군이 있음",
             faction_link_missing: "같은 진영 아군 없음",
             no_draw_requested: "뽑을 카드 없음",
+            hand_empty: "교환할 손패 없음",
             not_enough_enemy_minions: "적 장수 2명 미만",
             row_empty: "해당 진형에 장수 없음",
             column_pair_missing: "같은 세로줄의 전·후열 연계 없음",
@@ -322,6 +323,9 @@
         }
         if (detail.op === "damage_all_enemies") {
           return `${cardName}: 적 전장에 총 피해 ${result.actualDamage || 0}`;
+        }
+        if (detail.op === "swap_random_hands") {
+          return `${cardName}: 반골의 배신 · ${result.givenCard?.name || "내 카드"} ↔ ${result.takenCard?.name || "적 카드"}`;
         }
         if (detail.op === "damage_enemy_row") {
           return `${cardName}: 적 ${detail.row === "rear" ? "후열" : "전열"}에 총 피해 ${result.actualDamage || 0}`;
@@ -392,6 +396,7 @@
           "turn:end": `${actor === "player" ? "아군" : "적군"}이 턴을 마쳤습니다.`,
           "card:draw": `${actor === "player" ? "아군" : "적군"}이 카드를 뽑았습니다.`,
           "card:play": `${actor === "player" ? "아군" : "적군"}이 카드를 냈습니다.`,
+          "hand:betrayal": "위연이 양측의 계책을 뒤바꿨습니다.",
           "attack:start": "공격을 시작합니다.",
           "attack:hit": "공격이 적중했습니다.",
           "discord:start": "반간계로 적진이 흔들립니다.",
@@ -496,6 +501,9 @@
           emptyFort: false,
           secondAttackPenalty: false,
           temporaryAttackBonus: 0,
+          formationAttackBonus: 0,
+          formationArmorRemaining: 0,
+          formationBonusRow: null,
           summonedTurn: state.turnNumber,
         };
       }
@@ -544,8 +552,34 @@
       function placeMinion(side, minion, requested, reason) {
         const placement = choosePlacement(side, requested, minion.instanceId);
         if (!placement) return null;
+        if (minion.formationAttackBonus) {
+          minion.currentAttack = Math.max(
+            0,
+            minion.currentAttack - minion.formationAttackBonus,
+          );
+        }
+        if (minion.formationArmorRemaining) {
+          minion.currentArmor = Math.max(
+            0,
+            numberOr(minion.currentArmor, numberOr(minion.armor, 0)) -
+              minion.formationArmorRemaining,
+          );
+          minion.armor = minion.currentArmor;
+        }
+        minion.formationAttackBonus = 0;
+        minion.formationArmorRemaining = 0;
         minion.row = placement.row;
         minion.slot = placement.slot;
+        minion.formationBonusRow = placement.row;
+        if (placement.row === "front") {
+          minion.formationAttackBonus = 1;
+          minion.currentAttack += 1;
+        } else {
+          minion.formationArmorRemaining = 1;
+          minion.currentArmor =
+            Math.max(0, numberOr(minion.currentArmor, numberOr(minion.armor, 0))) + 1;
+          minion.armor = minion.currentArmor;
+        }
         if (!state.boards[side].some((candidate) => candidate.instanceId === minion.instanceId)) {
           state.boards[side].push(minion);
         }
@@ -562,6 +596,10 @@
           placement: deepClone(placement),
           row: placement.row,
           slot: placement.slot,
+          bonus: {
+            attack: placement.row === "front" ? 1 : 0,
+            armor: placement.row === "rear" ? 1 : 0,
+          },
           reason: reason || "play",
         });
         return placement;
@@ -740,6 +778,10 @@
         const armorAbsorbed = Math.min(armorBefore, amount);
         minion.currentArmor = armorBefore - armorAbsorbed;
         minion.armor = minion.currentArmor;
+        minion.formationArmorRemaining = Math.max(
+          0,
+          numberOr(minion.formationArmorRemaining, 0) - armorAbsorbed,
+        );
         amount -= armorAbsorbed;
         minion.currentHealth -= amount;
         if (
@@ -1217,6 +1259,31 @@
           preview.result.healthAfter = hero.health + preview.result.actualHealing;
         } else if (op === "draw") {
           preview.result = previewDraw(side, Math.max(0, numberOr(ability.count, amount)));
+        } else if (op === "swap_random_hands") {
+          const friendlyHand = state.hands[side];
+          const enemyHand = state.hands[enemy];
+          if (!friendlyHand.length || !enemyHand.length) {
+            preview.result.success = false;
+            preview.result.fizzled = true;
+            preview.result.reason = "hand_empty";
+          } else {
+            const friendlyIndex = rng.integer(friendlyHand.length);
+            const enemyIndex = rng.integer(enemyHand.length);
+            preview.selected = { friendlyIndex, enemyIndex };
+            preview.target = { zone: "hand", side: enemy, index: enemyIndex };
+            preview.result.givenCard = {
+              id: friendlyHand[friendlyIndex].id,
+              instanceId: friendlyHand[friendlyIndex].instanceId,
+              name: friendlyHand[friendlyIndex].name || "카드",
+              cost: numberOr(friendlyHand[friendlyIndex].currentCost, friendlyHand[friendlyIndex].cost),
+            };
+            preview.result.takenCard = {
+              id: enemyHand[enemyIndex].id,
+              instanceId: enemyHand[enemyIndex].instanceId,
+              name: enemyHand[enemyIndex].name || "카드",
+              cost: numberOr(enemyHand[enemyIndex].currentCost, enemyHand[enemyIndex].cost),
+            };
+          }
         } else if (op === "gain_armor") {
           preview.target = { zone: "hero", side };
           preview.result.actualArmorGained = Math.max(0, amount);
@@ -1754,6 +1821,23 @@
           for (let index = 0; index < drawCount && state.phase === "playing"; index += 1) {
             drawCard(side, false, source);
           }
+        } else if (op === "swap_random_hands") {
+          const friendlyIndex = preview.selected.friendlyIndex;
+          const enemyIndex = preview.selected.enemyIndex;
+          const givenCard = state.hands[side][friendlyIndex];
+          const takenCard = state.hands[enemy][enemyIndex];
+          state.hands[side][friendlyIndex] = takenCard;
+          state.hands[enemy][enemyIndex] = givenCard;
+          publish("hand:betrayal", {
+            actor: side,
+            side,
+            enemy,
+            source: source.instanceId,
+            friendlyIndex,
+            enemyIndex,
+            givenCard: deepClone(preview.result.givenCard),
+            takenCard: deepClone(preview.result.takenCard),
+          });
         } else if (op === "gain_armor") {
           state.heroes[side].armor += Math.max(0, amount);
         } else if (op === "grant_all_allies_armor") {
@@ -2622,11 +2706,23 @@
 
       function legalAttackTargets(side, attacker) {
         const enemy = OTHER_SIDE[side];
-        const guards = [];
+        const frontGuards = [];
+        const rearGuards = [];
         state.boards[enemy].forEach((minion, index) => {
-          if (minion.guard) guards.push({ zone: "board", side: enemy, index });
+          if (!minion.guard) return;
+          const target = { zone: "board", side: enemy, index };
+          if (minion.row === "rear") rearGuards.push(target);
+          else frontGuards.push(target);
         });
-        if (guards.length) return guards;
+        if (frontGuards.length) return frontGuards;
+        if (rearGuards.length) {
+          const frontTargets = state.boards[enemy]
+            .map((minion, index) =>
+              minion.row === "front" ? { zone: "board", side: enemy, index } : null,
+            )
+            .filter(Boolean);
+          return frontTargets.concat(rearGuards);
+        }
         const bypassesFront =
           Array.isArray(attacker?.keywords) &&
           (attacker.keywords.includes("저격") || attacker.keywords.includes("돌파"));
@@ -2656,17 +2752,38 @@
         const legal = legalAttackTargets(side, attacker);
         const requestedTarget = findTarget(targetReference);
         const enemy = OTHER_SIDE[side];
-        const guardTargets = state.boards[enemy]
+        const frontGuardTargets = state.boards[enemy]
           .map((minion, index) =>
-            minion.guard ? { zone: "board", side: enemy, index } : null,
+            minion.guard && minion.row !== "rear"
+              ? { zone: "board", side: enemy, index }
+              : null,
           )
           .filter(Boolean);
+        const rearGuardTargets = state.boards[enemy]
+          .map((minion, index) =>
+            minion.guard && minion.row === "rear"
+              ? { zone: "board", side: enemy, index }
+              : null,
+          )
+          .filter(Boolean);
+        const requestedNeedsRearProtection =
+          requestedTarget?.zone === "hero" ||
+          (requestedTarget?.zone === "board" && requestedTarget.entity.row === "rear");
+        const guardTargets = frontGuardTargets.length
+          ? frontGuardTargets
+          : requestedNeedsRearProtection
+            ? rearGuardTargets
+            : [];
+        const requestedIsRelevantGuard = guardTargets.some(
+          (candidate) =>
+            targetReference?.zone === "board" &&
+            candidate.index === Number(targetReference.index),
+        );
         const blockedByGuard =
           guardTargets.length > 0 &&
           requestedTarget &&
           requestedTarget.side === enemy &&
-          (requestedTarget.zone === "hero" ||
-            (requestedTarget.zone === "board" && !requestedTarget.entity.guard));
+          !requestedIsRelevantGuard;
         if (blockedByGuard) {
           return {
             ok: false,
@@ -2687,12 +2804,13 @@
           )
           .filter(Boolean);
         const blockedByFormation =
-          !guardTargets.length &&
+          !frontGuardTargets.length &&
           !bypassesFront &&
           frontTargets.length > 0 &&
           requestedTarget?.zone === "board" &&
           requestedTarget.side === enemy &&
-          requestedTarget.entity.row === "rear";
+          requestedTarget.entity.row === "rear" &&
+          !requestedTarget.entity.guard;
         if (blockedByFormation) {
           return {
             ok: false,

@@ -451,6 +451,28 @@ const definitions = [
       { trigger: "onPlay", op: "column_teamwork", frontArmor: 1, rearAttack: 1 },
     ],
   },
+  {
+    id: "test-rear-guard-summoner",
+    name: "후열 수호 시험",
+    faction: "위",
+    cost: 0,
+    attack: 1,
+    health: 4,
+    keywords: ["수호"],
+    target: "none",
+    abilities: [{ trigger: "onPlay", op: "summon_token", tokenId: "militia", count: 1 }],
+  },
+  {
+    id: "test-betrayal",
+    name: "배신 시험",
+    faction: "촉",
+    cost: 0,
+    attack: 1,
+    health: 2,
+    keywords: [],
+    target: "none",
+    abilities: [{ trigger: "onPlay", op: "swap_random_hands" }],
+  },
 ];
 
 const tokens = [
@@ -660,7 +682,7 @@ function testTurnManaSummoningAndBoardLimit() {
   assert.equal(state.boards.player[0].canAttack, true, "charge should bypass summoning sickness");
   assert.equal(state.heroes.player.mana, 0);
   playFirst(game, "attack", (action) => action.target.zone === "hero");
-  assert.equal(game.getState().heroes.ai.health, 28);
+  assert.equal(game.getState().heroes.ai.health, 27);
   playFirst(game, "endTurn");
   assert.equal(game.getState().turn, "ai");
   assert.equal(game.getState().heroes.ai.maxMana, 1);
@@ -753,7 +775,7 @@ function testTargetingGuardShieldAndCombat() {
     role: "",
     keywords: [],
     weapon: "화염 깃털부채",
-    attack: 1,
+    attack: 2,
     health: 2,
   });
   assert.equal(attackStart.detail.cardId, "strategist");
@@ -1058,7 +1080,7 @@ function testGrantAllAlliesArmorAndDamageAbsorption() {
   const armored = state.boards.player.find(
     (minion) => minion.instanceId === armoredInstanceId,
   );
-  assert.equal(armored.currentHealth, 2);
+  assert.equal(armored.currentHealth, 1);
   assert.equal(armored.currentArmor, 0);
   const absorbed = events.find(
     (event) =>
@@ -1067,7 +1089,7 @@ function testGrantAllAlliesArmorAndDamageAbsorption() {
       event.detail.armorAbsorbed === 2,
   );
   assert.ok(absorbed);
-  assert.equal(absorbed.detail.actualDamage, 0);
+  assert.equal(absorbed.detail.actualDamage, 1);
 }
 
 function testAttackingShieldMinionBlocksRetaliation() {
@@ -1161,7 +1183,7 @@ function testDslSummonsDrawBuffAndDeath() {
   buffGame.endTurn("ai");
   playFirst(buffGame, "playCard");
   state = buffGame.getState();
-  assert.equal(state.boards.player[0].currentAttack, 3);
+  assert.equal(state.boards.player[0].currentAttack, 4);
   assert.equal(state.boards.player[0].currentHealth, 4);
 }
 
@@ -1176,7 +1198,7 @@ function testRemainingDslOperators() {
   playFirst(readyGame, "playCard");
   let state = readyGame.getState();
   assert.equal(state.heroes.player.armor, 3);
-  assert.equal(state.boards.player[0].currentAttack, 3);
+  assert.equal(state.boards.player[0].currentAttack, 4);
   assert.equal(state.boards.player[0].currentHealth, 4);
   assert.equal(
     state.boards.player[0].canAttack,
@@ -1846,7 +1868,7 @@ function testCommanderSelectionCaoCaoAndActionContract() {
     "attack",
     (action) => action.target.zone === "hero" && action.target.side === "player",
   );
-  assert.equal(game.getState().heroes.player.health, 28);
+  assert.equal(game.getState().heroes.player.health, 27);
   assert.equal(game.endTurn("ai").ok, true);
 
   const beforeHealing = game.getState();
@@ -1862,7 +1884,7 @@ function testCommanderSelectionCaoCaoAndActionContract() {
   assert.equal(healingResult.ok, true);
   assert.equal(healingResult.result.actualHealing, 1);
   state = game.getState();
-  assert.equal(state.heroes.player.health, 29);
+  assert.equal(state.heroes.player.health, 28);
   assert.equal(state.heroes.player.mana, 1);
   assert.equal(state.commanders.player.powerUsedThisTurn, true);
   assert.equal(
@@ -1913,7 +1935,7 @@ function testLiuBeiReflectionChargesAndShieldSafety() {
     (action) => action.target.zone === "hero" && action.target.side === "player",
   );
   let state = game.getState();
-  assert.equal(state.heroes.player.health, 28);
+  assert.equal(state.heroes.player.health, 27);
   assert.equal(state.boards.ai[0].currentHealth, 1);
   assert.equal(state.commanders.player.reflectCharges, 1);
 
@@ -1927,7 +1949,7 @@ function testLiuBeiReflectionChargesAndShieldSafety() {
   assert.equal(game.attack("ai", 0, { zone: "hero", side: "player" }).ok, true);
   state = game.getState();
   assert.equal(state.boards.ai[0].currentHealth, 2, "zero charges must stop reflection");
-  assert.equal(state.heroes.player.health, 24);
+  assert.equal(state.heroes.player.health, 21);
 
   const reflections = events.filter((event) => event.type === "commander:reflect");
   assert.equal(reflections.length, 2);
@@ -2231,12 +2253,17 @@ function testFormationPlacementProtectionAndCapacity() {
     (action) => action.placement?.row === "rear" && action.placement.slot === 0,
   );
   assert.deepEqual(game.getState().boards.player[0].row, "rear");
+  assert.equal(game.getState().boards.player[0].currentAttack, 1);
+  assert.equal(game.getState().boards.player[0].currentArmor, 1);
+  assert.equal(game.getState().boards.player[0].formationArmorRemaining, 1);
   game.endTurn("player");
   playFirst(
     game,
     "playCard",
     (action) => action.placement?.row === "front" && action.placement.slot === 0,
   );
+  assert.equal(game.getState().boards.ai[0].currentAttack, 3);
+  assert.equal(game.getState().boards.ai[0].formationAttackBonus, 1);
   game.endTurn("ai");
   game.endTurn("player");
   playFirst(
@@ -2313,6 +2340,80 @@ function testFormationPlacementProtectionAndCapacity() {
   assert.ok(events.some((event) => event.type === "formation:place"));
 }
 
+function testRowSensitiveGuardCoverageAndBetrayal() {
+  const rearGuardGame = createGame({
+    definitions,
+    tokens,
+    playerDeck: deckOf("charger"),
+    aiDeck: deckOf("test-rear-guard-summoner"),
+    seed: 7031,
+  });
+  playFirst(
+    rearGuardGame,
+    "playCard",
+    (action) => action.placement?.row === "front" && action.placement.slot === 0,
+  );
+  rearGuardGame.endTurn("player");
+  playFirst(
+    rearGuardGame,
+    "playCard",
+    (action) => action.placement?.row === "rear" && action.placement.slot === 0,
+  );
+  rearGuardGame.endTurn("ai");
+  const rearGuardBoard = rearGuardGame.getState().boards.ai;
+  const frontIndex = rearGuardBoard.findIndex((minion) => minion.row === "front");
+  const rearGuardIndex = rearGuardBoard.findIndex(
+    (minion) => minion.row === "rear" && minion.guard,
+  );
+  assert.ok(frontIndex >= 0 && rearGuardIndex >= 0);
+  const rearGuardTargets = rearGuardGame
+    .getLegalActions("player")
+    .filter((action) => action.type === "attack" && action.attackerIndex === 0)
+    .map((action) => action.target);
+  assert.ok(rearGuardTargets.some((target) => target.zone === "board" && target.index === frontIndex));
+  assert.ok(rearGuardTargets.some((target) => target.zone === "board" && target.index === rearGuardIndex));
+  assert.ok(!rearGuardTargets.some((target) => target.zone === "hero"));
+
+  const frontGuardGame = createGame({
+    definitions,
+    tokens,
+    playerDeck: deckOf("charger"),
+    aiDeck: deckOf("guardian"),
+    seed: 7032,
+  });
+  playFirst(frontGuardGame, "playCard", (action) => action.placement?.row === "front");
+  frontGuardGame.endTurn("player");
+  playFirst(frontGuardGame, "playCard", (action) => action.placement?.row === "front");
+  frontGuardGame.endTurn("ai");
+  const frontGuardTargets = frontGuardGame
+    .getLegalActions("player")
+    .filter((action) => action.type === "attack")
+    .map((action) => action.target);
+  assert.ok(frontGuardTargets.length > 0);
+  assert.ok(frontGuardTargets.every((target) => target.zone === "board"));
+  assert.ok(frontGuardTargets.every((target) => frontGuardGame.getState().boards.ai[target.index].guard));
+
+  const betrayalEvents = [];
+  const betrayal = createGame({
+    definitions,
+    tokens,
+    playerDeck: deckOf("test-betrayal"),
+    aiDeck: deckOf("charger"),
+    seed: 7033,
+    emit: (type, detail) => betrayalEvents.push({ type, detail }),
+  });
+  playFirst(betrayal, "playCard", (action) => action.placement?.row === "rear");
+  const betrayalState = betrayal.getState();
+  assert.ok(betrayalState.hands.player.some((card) => card.id === "charger"));
+  assert.ok(betrayalState.hands.ai.some((card) => card.id === "test-betrayal"));
+  const betrayalEvent = betrayalEvents.find((event) => event.type === "hand:betrayal");
+  assert.ok(betrayalEvent);
+  assert.equal(betrayalEvent.detail.givenCard.id, "test-betrayal");
+  assert.equal(betrayalEvent.detail.takenCard.id, "charger");
+  assert.ok(Number.isInteger(betrayalEvent.detail.friendlyIndex));
+  assert.ok(Number.isInteger(betrayalEvent.detail.enemyIndex));
+}
+
 function testJiangWeiSowsDiscordBetweenEnemyMinions() {
   const events = [];
   const game = createGame({
@@ -2328,8 +2429,8 @@ function testJiangWeiSowsDiscordBetweenEnemyMinions() {
   assert.deepEqual(
     game.getState().boards.ai.map((minion) => [minion.name, minion.currentAttack, minion.currentHealth]),
     [
-      ["약한 선동병", 1, 1],
-      ["강한 친위대", 4, 5],
+      ["약한 선동병", 2, 1],
+      ["강한 친위대", 5, 5],
     ],
   );
   game.endTurn("ai");
@@ -2338,13 +2439,13 @@ function testJiangWeiSowsDiscordBetweenEnemyMinions() {
   const enemyBoard = game.getState().boards.ai;
   assert.equal(enemyBoard.length, 1);
   assert.equal(enemyBoard[0].name, "강한 친위대");
-  assert.equal(enemyBoard[0].currentHealth, 4);
+  assert.equal(enemyBoard[0].currentHealth, 3);
   assert.ok(events.some((event) => event.type === "discord:start"));
   const hit = events.find((event) => event.type === "discord:hit");
   assert.equal(hit.detail.weakestName, "약한 선동병");
   assert.equal(hit.detail.strongestName, "강한 친위대");
-  assert.equal(hit.detail.damageToStrongest, 1);
-  assert.equal(hit.detail.damageToWeakest, 4);
+  assert.equal(hit.detail.damageToStrongest, 2);
+  assert.equal(hit.detail.damageToWeakest, 5);
   assert.equal(hit.detail.weakestDied, true);
   assert.equal(hit.detail.strongestDied, false);
 
@@ -2464,7 +2565,7 @@ function testSignatureGeneralAbilitiesAndStatuses() {
   duel.endTurn("ai");
   playFirst(duel, "playCard");
   assert.equal(duel.getState().boards.ai.length, 0);
-  assert.equal(duel.getState().boards.player[0].currentHealth, 3);
+  assert.equal(duel.getState().boards.player[0].currentHealth, 2);
   assert.equal(duel.getState().boards.player[0].canAttack, true);
   assert.ok(duelEvents.some((event) => event.type === "duel:start"));
   assert.ok(duelEvents.some((event) => event.type === "duel:hit"));
@@ -2480,10 +2581,10 @@ function testSignatureGeneralAbilitiesAndStatuses() {
   playFirst(intimidate, "playCard", (action) => action.placement?.row === "front");
   intimidate.endTurn("ai");
   playFirst(intimidate, "playCard");
-  assert.equal(intimidate.getState().boards.ai[0].currentAttack, 1);
+  assert.equal(intimidate.getState().boards.ai[0].currentAttack, 2);
   intimidate.endTurn("player");
   intimidate.endTurn("ai");
-  assert.equal(intimidate.getState().boards.ai[0].currentAttack, 2);
+  assert.equal(intimidate.getState().boards.ai[0].currentAttack, 3);
 
   const emptyFortEvents = [];
   const emptyFort = createGame({
@@ -2507,7 +2608,7 @@ function testSignatureGeneralAbilitiesAndStatuses() {
   assert.equal(emptyFort.getState().heroes.player.emptyFortCharges, 0);
   assert.ok(
     emptyFortEvents.some(
-      (event) => event.type === "status:empty-fort" && event.detail.preventedDamage === 2,
+      (event) => event.type === "status:empty-fort" && event.detail.preventedDamage === 3,
     ),
   );
 
@@ -2636,7 +2737,7 @@ function testRowTacticsAndColumnTeamwork() {
   );
   const reinforcedBoard = reinforce.getState().boards.player;
   assert.equal(reinforcedBoard.find((minion) => minion.row === "front").currentArmor, 2);
-  assert.equal(reinforcedBoard.find((minion) => minion.row === "rear").currentArmor, 0);
+  assert.equal(reinforcedBoard.find((minion) => minion.row === "rear").currentArmor, 1);
   assert.ok(reinforceEvents.some((event) => event.type === "formation:reinforce"));
 
   const teamworkEvents = [];
@@ -2744,6 +2845,7 @@ testNomadAttackLockCloneAndExpiry();
 testCloneDeterminismAndIsolation();
 testFatigueEndsGame();
 testFormationPlacementProtectionAndCapacity();
+testRowSensitiveGuardCoverageAndBetrayal();
 testJiangWeiSowsDiscordBetweenEnemyMinions();
 testFourFactionLinks();
 testSignatureGeneralAbilitiesAndStatuses();

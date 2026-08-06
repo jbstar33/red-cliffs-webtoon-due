@@ -130,7 +130,7 @@
 
   const KEYWORD_DEFINITIONS = Object.freeze({
     돌진: "출전한 턴에도 즉시 공격할 수 있습니다.",
-    수호: "적은 수호가 있는 동안 다른 대상을 공격할 수 없습니다.",
+    수호: "전열 배치 시 전열·후열·지휘관을 모두 보호하고, 후열 배치 시 후열·지휘관만 보호합니다.",
     방패: "이 장수가 받는 다음 한 번의 피해를 막습니다.",
     출전: "이 카드를 손에서 낼 때 한 번 발동합니다.",
     유언: "이 장수가 쓰러질 때 한 번 발동합니다.",
@@ -559,6 +559,14 @@
         || KEYWORD_DEFINITIONS[name]
         || "카드에 특별히 적용되는 전투 규칙입니다.",
       );
+      if (name === "수호") {
+        const row = String(getCardValue(card, "row", ""));
+        if (row === "front") {
+          glossaryDefinition = "전열 수호: 이 장수가 전열·후열·지휘관을 모두 보호합니다.";
+        } else if (row === "rear") {
+          glossaryDefinition = "후열 수호: 이 장수가 후열과 지휘관만 보호하며, 전열 장수는 계속 공격할 수 있습니다.";
+        }
+      }
       let exactGlossarySegment = `${name} — ${glossaryDefinition}`;
       if (
         entry.kind === "keyword"
@@ -6139,7 +6147,19 @@
   const PORTRAIT_SURFACE_CACHE = new Map();
   const PORTRAIT_SURFACE_CACHE_LIMIT = 144;
   const portraitCacheMetrics = { hits: 0, misses: 0, paints: 0, evictions: 0 };
-  const ORIGINAL_CARD_ART_VERSION = "original-webtoon-v2-20260802";
+  const ORIGINAL_CARD_ART_VERSION = "original-webtoon-v3-20260806";
+  const ORIGINAL_CARD_ART_PNG_IDS = new Set([
+    "wu_sun_ce",
+    "wu_sun_jian",
+    "qun_zhang_jiao",
+    "shu_xu_shu",
+    "shu_ma_dai",
+    "shu_guan_ping",
+    "wei_deng_ai",
+    "wei_zhong_hui",
+    "wei_pang_de",
+    "qun_hua_xiong",
+  ]);
   const ORIGINAL_CARD_ART_IDS = new Set([
     "shu_liu_bei",
     "shu_guan_yu",
@@ -6153,6 +6173,9 @@
     "shu_jiang_wei",
     "shu_fa_zheng",
     "shu_liao_hua",
+    "shu_xu_shu",
+    "shu_ma_dai",
+    "shu_guan_ping",
     "wei_cao_cao",
     "wei_sima_yi",
     "wei_xiahou_dun",
@@ -6165,6 +6188,9 @@
     "wei_cao_ren",
     "wei_xun_yu",
     "wei_li_dian",
+    "wei_deng_ai",
+    "wei_zhong_hui",
+    "wei_pang_de",
     "wu_sun_quan",
     "wu_zhou_yu",
     "wu_gan_ning",
@@ -6177,6 +6203,8 @@
     "wu_da_qiao",
     "wu_xiao_qiao",
     "wu_zhou_tai",
+    "wu_sun_ce",
+    "wu_sun_jian",
     "nanman_meng_huo",
     "nanman_zhu_rong",
     "nanman_wu_tu_gu",
@@ -6191,6 +6219,8 @@
     "qun_diao_chan",
     "qun_dong_zhuo",
     "qun_yuan_shao",
+    "qun_zhang_jiao",
+    "qun_hua_xiong",
   ]);
   const COMMANDER_ART_CARD_IDS = Object.freeze({
     caocao: "wei_cao_cao",
@@ -6216,7 +6246,8 @@
   function originalCardArtSource(card) {
     const id = String(getCardValue(card, "id", ""));
     if (!ORIGINAL_CARD_ART_IDS.has(id)) return "";
-    return `/art/cards/${id}.jpg?v=${ORIGINAL_CARD_ART_VERSION}`;
+    const extension = ORIGINAL_CARD_ART_PNG_IDS.has(id) ? "png" : "jpg";
+    return `/art/cards/${id}.${extension}?v=${ORIGINAL_CARD_ART_VERSION}`;
   }
 
   function originalCardArtSnapshot() {
@@ -9057,6 +9088,7 @@
     let renderScaleX = 1;
     let renderScaleY = 1;
     let thinking = false;
+    let turnTimer = { active: false, seconds: 10, ratio: 1, urgent: false };
     let mutedHint = false;
     let hoverHit = null;
     let hoverInputSource = "none";
@@ -11637,6 +11669,9 @@
         && state.turn === "player"
         && !thinking
         && !isPresentationLocked(now);
+      const timerVisible = state.phase === "playing"
+        && state.turn === "player"
+        && turnTimer.active;
       const pulse = enabled && !reducedMotionQuery.matches ? (Math.sin(now * 0.005) + 1) / 2 : 0;
       const pressScale = currentVisualPressScale("end-turn", now);
       ctx.save();
@@ -11677,10 +11712,32 @@
         stroke: "#3a1e10",
         strokeWidth: 3,
       });
-      drawCenteredText(ctx, enabled ? "END TURN" : presentationWait ? "RESOLVING" : "WAIT", x + width / 2, y + height - 20, {
+      const timerCopy = timerVisible
+        ? `남은 시간 ${Math.max(0, Number(turnTimer.seconds) || 0)}초`
+        : enabled
+          ? "END TURN"
+          : presentationWait
+            ? "RESOLVING"
+            : "WAIT";
+      drawCenteredText(ctx, timerCopy, x + width / 2, y + height - 20, {
         font: `800 9px ${UI_FONT}`,
-        color: enabled ? "#f0cb78" : "#77746e",
+        color: timerVisible && turnTimer.urgent
+          ? "#ff8d78"
+          : enabled
+            ? "#f0cb78"
+            : "#77746e",
       });
+      if (timerVisible) {
+        const ratio = Math.max(0, Math.min(1, Number(turnTimer.ratio) || 0));
+        roundedRect(ctx, x + 16, y + height - 11, width - 32, 4, 2);
+        ctx.fillStyle = "rgba(12,8,5,.7)";
+        ctx.fill();
+        if (ratio > 0) {
+          roundedRect(ctx, x + 16, y + height - 11, (width - 32) * ratio, 4, 2);
+          ctx.fillStyle = turnTimer.urgent ? "#ee6048" : "#f3c65f";
+          ctx.fill();
+        }
+      }
       ctx.restore();
       addHit("end-turn", x, y, width, height, {});
     }
@@ -12479,7 +12536,9 @@
         "commander:power": "지휘관 능력이 발동했습니다.",
         "commander:reflect": "인덕의 반사가 발동했습니다.",
         "commander:lock": "다음 공격이 봉쇄되었습니다.",
-        "formation:place": "선택한 진형 칸에 장수를 배치했습니다.",
+        "formation:place": detail && detail.row === "rear"
+          ? "후열 배치 · 방어력 +1"
+          : "전열 배치 · 공격력 +1",
         "formation:block": "전열이 후열을 보호하고 있습니다.",
         "formation:row-strike": `${detail && detail.row === "rear" ? "후열" : "전열"} 일제 공격이 적중했습니다.`,
         "formation:reinforce": `${detail && detail.row === "rear" ? "후열" : "전열"} 진형을 보강했습니다.`,
@@ -12494,6 +12553,8 @@
         "status:intimidate": "장판의 호통이 적 전열을 위축시켰습니다.",
         "status:empty-fort": "공성계가 공격을 흘려냈습니다.",
         "status:raid": "약탈로 다음 공격을 봉쇄했습니다.",
+        "hand:betrayal": "위연의 배신 · 양측 손패 한 장이 뒤바뀌었습니다.",
+        "turn:timeout": "시간 초과 · 가능한 명령 하나를 자동 실행했습니다.",
         "game:end": "대전이 끝났습니다.",
         "action:invalid": "그 행동은 할 수 없습니다.",
       };
@@ -12668,12 +12729,27 @@
       }
       if (inspectionMatchesAction(type, eventDetail)) closeInspection(false);
       if (type === "game:start") {
+        turnTimer = { active: false, seconds: 10, ratio: 1, urgent: false };
         combatTimelines.length = 0;
         dyingGhosts.length = 0;
         heroHealthLatches.player = null;
         heroHealthLatches.ai = null;
         presentationBusyUntil = 0;
         seenHeroDamageTokens.clear();
+      } else if (type === "turn:timer") {
+        turnTimer = {
+          active: !eventDetail.expired,
+          seconds: Math.max(0, Number(eventDetail.seconds) || 0),
+          ratio: Math.max(0, Math.min(1, Number(eventDetail.ratio) || 0)),
+          urgent: Boolean(eventDetail.urgent),
+        };
+        if (turnTimer.urgent && turnTimer.seconds > 0) {
+          liveRegion.textContent = `턴 종료까지 ${turnTimer.seconds}초 남았습니다.`;
+        }
+      } else if (type === "turn:timeout") {
+        turnTimer = { active: false, seconds: 0, ratio: 0, urgent: true };
+        showToast(localizedEventMessage, "invalid");
+        liveRegion.textContent = localizedEventMessage;
       } else if (type === "attack:start") {
         clearSelectionPrompt();
         const priorTimeline = latestCombatTimeline();
@@ -12724,6 +12800,7 @@
         "status:intimidate",
         "status:empty-fort",
         "status:raid",
+        "hand:betrayal",
       ].includes(type)) {
         showToast(localizedEventMessage, type === "formation:block" ? "invalid" : "normal");
       } else if (type === "card:play") {
@@ -12818,7 +12895,7 @@
     if (!canvas || typeof canvas.getContext !== "function") {
       throw new Error("boardUI gallery: canvas가 필요합니다.");
     }
-    const roster = Array.isArray(cards) ? cards.slice(0, 50) : [];
+    const roster = Array.isArray(cards) ? cards.slice(0, 60) : [];
     const refreshGallery = () => {
       ORIGINAL_CARD_ART_REFRESHERS.delete(refreshGallery);
       renderPortraitGallery(canvas, cards);

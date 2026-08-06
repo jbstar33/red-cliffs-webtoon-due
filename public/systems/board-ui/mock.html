@@ -16,7 +16,7 @@
 </head>
 <body>
   <main id="game"><canvas id="board"></canvas></main>
-  <section id="gallery" aria-label="50인 초상 검수 갤러리">
+  <section id="gallery" aria-label="60인 초상 검수 갤러리">
     <canvas id="portrait-gallery"></canvas>
   </section>
   <script src="./index.js"></script>
@@ -34,6 +34,9 @@
       ["shu_jiang_wei", "강유", "백약", "촉", "계승자"],
       ["shu_fa_zheng", "법정", "효직", "촉", "모사"],
       ["shu_liao_hua", "요화", "원검", "촉", "노장"],
+      ["shu_xu_shu", "서서", "원직", "촉", "책사"],
+      ["shu_ma_dai", "마대", "백첨", "촉", "기병"],
+      ["shu_guan_ping", "관평", "", "촉", "충장"],
       ["wei_cao_cao", "조조", "맹덕", "위", "군주"],
       ["wei_sima_yi", "사마의", "중달", "위", "책사"],
       ["wei_xiahou_dun", "하후돈", "원양", "위", "호위"],
@@ -46,6 +49,9 @@
       ["wei_cao_ren", "조인", "자효", "위", "성수"],
       ["wei_xun_yu", "순욱", "문약", "위", "왕좌지재"],
       ["wei_li_dian", "이전", "만성", "위", "선봉"],
+      ["wei_deng_ai", "등애", "사재", "위", "정서장군"],
+      ["wei_zhong_hui", "종회", "사계", "위", "모사"],
+      ["wei_pang_de", "방덕", "영명", "위", "결사장"],
       ["wu_sun_quan", "손권", "중모", "오", "군주"],
       ["wu_zhou_yu", "주유", "공근", "오", "도독"],
       ["wu_gan_ning", "감녕", "흥패", "오", "수적"],
@@ -58,6 +64,8 @@
       ["wu_da_qiao", "대교", "", "오", "치유사"],
       ["wu_xiao_qiao", "소교", "", "오", "악사"],
       ["wu_zhou_tai", "주태", "유평", "오", "호위"],
+      ["wu_sun_ce", "손책", "백부", "오", "소패왕"],
+      ["wu_sun_jian", "손견", "문대", "오", "강동맹호"],
       ["nanman_meng_huo", "맹획", "", "남만", "남만왕"],
       ["nanman_zhu_rong", "축융", "", "남만", "화신 장수"],
       ["nanman_wu_tu_gu", "올돌골", "", "남만", "등갑왕"],
@@ -72,6 +80,8 @@
       ["qun_diao_chan", "초선", "", "군웅", "연환미인"],
       ["qun_dong_zhuo", "동탁", "중영", "군웅", "폭군"],
       ["qun_yuan_shao", "원소", "본초", "군웅", "맹주"],
+      ["qun_zhang_jiao", "장각", "", "군웅", "대현량사"],
+      ["qun_hua_xiong", "화웅", "", "군웅", "맹장"],
     ];
     const fullTexts = {
       shu_liu_bei: "출전: 아군 영웅의 체력을 2 회복합니다.",
@@ -81,6 +91,9 @@
       shu_zhuge_liang: "출전: 카드를 2장 뽑습니다. 출전: 내 손의 무작위 카드 하나의 비용을 1 감소시킵니다.",
       shu_huang_zhong: "출전: 적 대상 하나에게 피해를 2 줍니다.",
       shu_ma_chao: "돌진",
+      shu_xu_shu: "출전: 내 손패 한 장의 비용을 1 줄이고 카드를 1장 뽑습니다.",
+      shu_ma_dai: "돌진",
+      shu_guan_ping: "수호, 의형제",
       wei_cao_cao: "출전: 다른 모든 아군 장수에게 공격력 +1과 체력 +1을 부여합니다.",
       wei_sima_yi: "출전: 무작위 적 하나에게 피해를 2 줍니다. 출전: 방어도를 2 얻습니다.",
       wei_xiahou_dun: "수호",
@@ -88,6 +101,9 @@
       wei_zhang_liao: "돌진",
       wei_guo_jia: "죽음: 카드를 1장 뽑습니다.",
       wei_xu_zhu: "수호. 출전: 방어도를 1 얻습니다.",
+      wei_deng_ai: "출전: 적 후열 전체에 피해를 1 줍니다.",
+      wei_zhong_hui: "출전: 카드를 1장 뽑습니다. 군략",
+      wei_pang_de: "돌진",
       wu_sun_quan: "출전: 강동 수군을 2명 소환합니다.",
       wu_zhou_yu: "출전: 모든 적에게 피해를 2 줍니다.",
       wu_gan_ning: "돌진",
@@ -95,12 +111,16 @@
       wu_huang_gai: "죽음: 적 영웅에게 피해를 1 줍니다.",
       wu_sun_shangxiang: "출전: 적 대상 하나에게 피해를 1 줍니다.",
       wu_lu_xun: "출전: 모든 적 장수에게 피해를 1 줍니다. 카드를 1장 뽑습니다.",
+      wu_sun_ce: "돌진, 돌파",
+      wu_sun_jian: "수호, 연화",
       nanman_meng_huo: "유언: 방어도를 3 얻습니다.",
       nanman_zhu_rong: "출전: 선택한 적 대상 하나에게 피해를 2 줍니다.",
       nanman_wu_tu_gu: "수호, 방패",
       nanman_mu_lu: "출전: 남만 야수 둘을 소환합니다.",
       nanman_a_hui_nan: "출전: 양옆 아군 장수에게 공격력 +1을 부여합니다.",
       qun_lu_bu: "돌진",
+      qun_zhang_jiao: "출전: 모든 적 장수에게 화상 1을 부여합니다.",
+      qun_hua_xiong: "돌진",
     };
     const keywordSets = {
       shu_guan_yu: ["돌진"],
@@ -114,6 +134,13 @@
       wu_gan_ning: ["돌진"],
       nanman_wu_tu_gu: ["수호", "방패"],
       qun_lu_bu: ["돌진"],
+      shu_ma_dai: ["돌진"],
+      shu_guan_ping: ["수호", "의형제"],
+      wei_zhong_hui: ["군략"],
+      wei_pang_de: ["돌진"],
+      wu_sun_ce: ["돌진", "돌파"],
+      wu_sun_jian: ["수호", "연화"],
+      qun_hua_xiong: ["돌진"],
     };
     const tacticalIdentities = {
       shu_liu_bei: "초반 회복 선봉",
@@ -143,6 +170,16 @@
       nanman_mu_lu: "야수 전개 소환수",
       nanman_a_hui_nan: "인접 강화 전령",
       qun_lu_bu: "최종 돌진 병기",
+      shu_xu_shu: "감량과 드로우 책사",
+      shu_ma_dai: "민첩한 서량 기병",
+      shu_guan_ping: "의형제 수호 충장",
+      wei_deng_ai: "후열 기습 정서장군",
+      wei_zhong_hui: "손패 순환 군략가",
+      wei_pang_de: "결사의 돌진 장수",
+      wu_sun_ce: "강동 돌파 소패왕",
+      wu_sun_jian: "전장을 지키는 강동맹호",
+      qun_zhang_jiao: "전장 화상 교주",
+      qun_hua_xiong: "사수관 돌진 맹장",
     };
     function card(index) {
       const general = roster[index % roster.length];

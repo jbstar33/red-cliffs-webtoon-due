@@ -323,6 +323,21 @@
     return boardOf(state, defender).filter(hasGuard);
   }
 
+  function guardsAllowTarget(state, defender, targetReference, target) {
+    const guards = enemyGuards(state, defender);
+    const frontGuards = guards.filter((guard) => rowOf(guard) !== "rear");
+    if (frontGuards.length) {
+      return targetReference.zone === "board"
+        && hasGuard(target)
+        && rowOf(target) !== "rear";
+    }
+    const rearGuards = guards.filter((guard) => rowOf(guard) === "rear");
+    if (!rearGuards.length) return true;
+    if (targetReference.zone !== "board") return false;
+    if (rowOf(target) === "front") return true;
+    return rowOf(target) === "rear" && hasGuard(target);
+  }
+
   function readyDamage(state, side) {
     return boardOf(state, side).reduce(
       (sum, minion) => sum + (isReady(minion) ? attackOf(minion) : 0),
@@ -959,6 +974,7 @@
       patience_counter: 3.1,
       apply_burning_all: 4.3,
       faction_link: 2.2,
+      swap_random_hands: 2.15,
     };
     let value = (values[ability.op] || 0.8) * amount;
     if (ability.attack || ability.health) {
@@ -1202,6 +1218,7 @@
       if (!actual) value -= 13;
       if (threat >= effectiveHealth(aiHero) && actual > 0) value += 34;
       else if (effectiveHealth(aiHero) <= 10 && actual > 0) value += 7;
+      else if (effectiveHealth(aiHero) >= 20 && threat <= 3 && actual > 0) value -= 6;
       return value;
     }
     if (kind === "flood") {
@@ -1237,7 +1254,7 @@
       const attack = attackOf(target);
       const threat = futureBoardDamage(state, PLAYER_SIDE);
       let value = attack * 1.65 + minionValue(target) * 0.38;
-      if (attack <= 2) value -= 5.5;
+      if (attack <= 3) value -= 8;
       if (attack >= 5) value += 5;
       if (threat >= effectiveHealth(aiHero)) value += attack * 1.6 + 8;
       if (hasGuard(target)) value += 1.2;
@@ -1333,10 +1350,7 @@
     const attackerId = entityId(attacker);
     const attackerDeathValue = deathrattleValue(attacker, state);
     const guards = enemyGuards(state, PLAYER_SIDE);
-    if (
-      guards.length &&
-      (action.target.zone !== "board" || action.target.side !== PLAYER_SIDE || !hasGuard(target))
-    ) {
+    if (!guardsAllowTarget(state, PLAYER_SIDE, action.target, target)) {
       return -WIN_SCORE * 0.6;
     }
     if (
@@ -1572,6 +1586,7 @@
       .map((ability) => ability && ability.requiredRow)
       .filter(Boolean);
     let value = 0;
+    value += row === "front" ? 1.2 : 0.95;
     const columnAbility = abilityByOp(card, "column_teamwork");
     if (columnAbility) {
       const oppositeRow = row === "front" ? "rear" : "front";
@@ -1583,7 +1598,7 @@
     if (requiredRows.length) {
       value += requiredRows.includes(row) ? 16 : -30;
     }
-    if (hasGuard(card)) value += row === "front" ? 9 : -8;
+    if (hasGuard(card)) value += row === "front" ? 9 : 2.8;
     if (health >= 6) value += row === "front" ? 3.4 : -0.7;
     if (health <= 3) value += row === "rear" ? 3.2 : -1.2;
     if (isStrategist(card)) value += row === "rear" ? 5.4 : -3.1;
@@ -1721,6 +1736,23 @@
         value += Math.min(handSpace, Math.max(1, finite(ability.count, amount))) * 1.45;
         if (!handSpace) value -= 5;
         if (!deckSize) value -= 4;
+      } else if (ability.op === "swap_random_hands") {
+        const enemyHandCount = Array.isArray(state.hands && state.hands.player)
+          ? state.hands.player.length
+          : 0;
+        const ownCandidates = hand.filter((candidate, index) => index !== Number(action.handIndex));
+        if (!ownCandidates.length || !enemyHandCount) {
+          value -= 12;
+        } else {
+          const averageCost = ownCandidates.reduce(
+            (sum, candidate) => sum + Math.max(0, finite(candidate.currentCost, candidate.cost)),
+            0,
+          ) / ownCandidates.length;
+          const stranded = ownCandidates.filter(
+            (candidate) => finite(candidate.currentCost, candidate.cost) > remaining,
+          ).length;
+          value += 0.9 + Math.min(2.4, averageCost * 0.24) + stranded * 0.35;
+        }
       } else if (ability.op === "buff_friendly_board") {
         value += friendlyBoard.length * 1.85;
         if (!friendlyBoard.length) value -= 2.8;
@@ -2065,10 +2097,7 @@
     if (!attacker || !target || !isReady(attacker) || action.target.side !== PLAYER_SIDE) {
       return false;
     }
-    const guards = enemyGuards(state, PLAYER_SIDE);
-    if (guards.length) {
-      return action.target.zone === "board" && hasGuard(target);
-    }
+    if (!guardsAllowTarget(state, PLAYER_SIDE, action.target, target)) return false;
     if (
       action.target.zone === "board" &&
       rowOf(target) === "rear" &&

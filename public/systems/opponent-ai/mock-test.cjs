@@ -1127,6 +1127,45 @@ function choose(state, actions, seed) {
   );
 }
 
-console.log("opponent-ai tactical mocks: 123 deterministic scenario groups passed");
+{
+  const state = baseState();
+  state.boards.ai = [minion("rear-guard-attacker", 4, 10)];
+  state.boards.player = [
+    minion("front-open-target", 9, 1, { row: "front", slot: 0 }),
+    minion("rear-limited-guard", 1, 5, { guard: true, row: "rear", slot: 0 }),
+  ];
+  const frontAttack = {
+    type: "attack",
+    side: "ai",
+    attackerIndex: 0,
+    target: { zone: "board", side: "player", index: 0 },
+  };
+  const selected = choose(state, [frontAttack, { type: "endTurn", side: "ai" }], "rear-guard-front-open");
+  assert.strictEqual(selected.type, "attack", "rear guard must leave front-row targets attackable");
+  assert.strictEqual(selected.target.index, 0);
+}
+
+{
+  const state = baseState();
+  state.heroes.ai.mana = 3;
+  state.hands.ai = [
+    card("shu_wei_yan", 3, 3, 3, [{ trigger: "onPlay", op: "swap_random_hands" }]),
+    card("own-expensive", 7, 7, 7),
+  ];
+  state.hands.player = [card("hidden-weak", 1, 0, 1)];
+  const hiddenVariant = copy(state);
+  hiddenVariant.hands.player = [card("hidden-finisher", 9, 12, 12, [{ trigger: "onPlay", op: "damage_enemy_hero", amount: 20 }])];
+  const actions = [
+    { type: "playCard", side: "ai", handIndex: 0, placement: { row: "rear", slot: 0 } },
+    { type: "endTurn", side: "ai" },
+  ];
+  assert.deepStrictEqual(
+    choose(state, actions, "betrayal-hidden-fairness"),
+    choose(hiddenVariant, actions, "betrayal-hidden-fairness"),
+    "Wei Yan must value only enemy hand count, never hidden card contents",
+  );
+}
+
+console.log("opponent-ai tactical mocks: 125 deterministic scenario groups passed");
 require("./formation-depth-test.cjs");
 require("./commander-power-test.cjs");

@@ -23,6 +23,8 @@
     "formation:reinforce": 680,
     "formation:teamwork": 760,
     "faction:link": 780,
+    "hand:betrayal": 780,
+    "turn:timeout": 680,
     "duel:start": 720,
     "duel:hit": 700,
     "discord:start": 720,
@@ -39,6 +41,75 @@
   const AI_CARD_ACTION_DELAY_MS = 520;
   const AI_ATTACK_ACTION_DELAY_MS = 610;
   const AI_END_TURN_DELAY_MS = 380;
+  const PLAYER_TURN_LIMIT_MS = 10_000;
+
+  function createTurnTimer(options) {
+    const config = options || {};
+    const now = typeof config.now === "function" ? config.now : () => performance.now();
+    const setTimer = typeof config.setTimer === "function" ? config.setTimer : setTimeout;
+    const clearTimer = typeof config.clearTimer === "function" ? config.clearTimer : clearTimeout;
+    const durationMs = Math.max(1_000, Number(config.durationMs) || PLAYER_TURN_LIMIT_MS);
+    const onTick = typeof config.onTick === "function" ? config.onTick : () => {};
+    const onExpire = typeof config.onExpire === "function" ? config.onExpire : () => {};
+    let timerId = 0;
+    let active = false;
+    let deadline = 0;
+    let context = null;
+    let lastSeconds = -1;
+
+    function cancel() {
+      if (timerId) clearTimer(timerId);
+      timerId = 0;
+      active = false;
+      deadline = 0;
+      context = null;
+      lastSeconds = -1;
+    }
+
+    function pulse() {
+      timerId = 0;
+      if (!active) return;
+      const remainingMs = Math.max(0, deadline - now());
+      const seconds = Math.max(0, Math.ceil(remainingMs / 1000));
+      if (seconds !== lastSeconds) {
+        lastSeconds = seconds;
+        onTick(Object.freeze({
+          context,
+          seconds,
+          remainingMs,
+          durationMs,
+          ratio: Math.max(0, Math.min(1, remainingMs / durationMs)),
+          urgent: seconds <= 3,
+          expired: remainingMs <= 0,
+        }));
+      }
+      if (remainingMs <= 0) {
+        const expiredContext = context;
+        active = false;
+        deadline = 0;
+        context = null;
+        onExpire(expiredContext);
+        return;
+      }
+      timerId = setTimer(pulse, Math.min(1000, remainingMs));
+    }
+
+    function start(nextContext) {
+      cancel();
+      context = nextContext || null;
+      active = true;
+      deadline = now() + durationMs;
+      pulse();
+    }
+
+    return Object.freeze({
+      start,
+      cancel,
+      isActive: () => active,
+      deadline: () => deadline,
+      remainingMs: () => active ? Math.max(0, deadline - now()) : 0,
+    });
+  }
 
   function createPresentationCoordinator(options) {
     const config = options || {};
@@ -99,7 +170,9 @@
 
   TK.runtime = TK.runtime || {};
   TK.runtime.createPresentationCoordinator = createPresentationCoordinator;
+  TK.runtime.createTurnTimer = createTurnTimer;
   TK.runtime.presentationDurations = PRESENTATION_MS;
+  TK.runtime.playerTurnLimitMs = PLAYER_TURN_LIMIT_MS;
 
   if (global.__tkGameBooted) return;
 
@@ -155,11 +228,17 @@
   let initializing = false;
   let selectedCommanderId = null;
   let opponentCommanderId = null;
+  let playerTurnTimerKey = "";
   const COMMANDER_IDS = Object.freeze(["caocao", "liubei", "sunquan", "nomad"]);
   const presentation = createPresentationCoordinator({
     reducedMotion: () => Boolean(
       global.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches,
     ),
+  });
+  const playerTurnTimer = createTurnTimer({
+    durationMs: PLAYER_TURN_LIMIT_MS,
+    onTick: (detail) => broadcast("turn:timer", { side: "player", ...detail }),
+    onExpire: (context) => void expirePlayerTurn(context),
   });
 
   function seededRandom(seed) {
@@ -178,6 +257,11 @@
       clearTimeout(timer.id);
       timer.settle(false);
     });
+  }
+
+  function cancelPlayerTurnTimer(resetKey) {
+    playerTurnTimer.cancel();
+    if (resetKey !== false) playerTurnTimerKey = "";
   }
 
   function wait(ms) {
@@ -319,9 +403,84 @@
     if (!nextState) return null;
     stateSnapshot = nextState;
     ui.render(nextState);
+    syncPlayerTurnTimer(nextState);
     syncRuntimeDataset(nextState);
     syncAnnouncer(nextState);
     return nextState;
+  }
+
+  function syncPlayerTurnTimer(state) {
+    const shouldRun = Boolean(
+      state
+      && state.phase === "playing"
+      && state.turn === "player"
+      && !pageHidden
+    );
+    if (!shouldRun) {
+      cancelPlayerTurnTimer(false);
+      return;
+    }
+    const key = `${matchEpoch}:${Number(state.turnNumber) || 0}`;
+    if (playerTurnTimerKey === key) return;
+    playerTurnTimerKey = key;
+    playerTurnTimer.start(Object.freeze({
+      epoch: matchEpoch,
+      turnNumber: Number(state.turnNumber) || 0,
+      key,
+    }));
+  }
+
+  async function expirePlayerTurn(timerContext) {
+    const epoch = timerContext && timerContext.epoch;
+    const turnNumber = Number(timerContext && timerContext.turnNumber) || 0;
+    let state = stateSnapshot;
+    if (
+      epoch !== matchEpoch
+      || !game
+      || !state
+      || state.phase !== "playing"
+      || state.turn !== "player"
+      || (Number(state.turnNumber) || 0) !== turnNumber
+    ) {
+      return;
+    }
+
+    const legalActions = game
+      .getLegalActions("player")
+      .filter((action) => action && action.type !== "endTurn");
+    const random = seededRandom(
+      ((Date.now() >>> 0) ^ ((Number(state.revision) || 0) * 0x9e3779b1)) >>> 0,
+    );
+    const chosen = legalActions.length
+      ? legalActions[Math.floor(random() * legalActions.length)]
+      : null;
+    broadcast("turn:timeout", {
+      side: "player",
+      turnNumber,
+      actionType: chosen ? chosen.type : "endTurn",
+      autoSubmitted: true,
+    });
+
+    if (chosen) {
+      applyAction(game, chosen);
+      state = render(refreshStateSnapshot());
+      if (!state || state.phase !== "playing" || state.turn !== "player") return;
+      if (!await waitForPresentationWindow(epoch, 420)) return;
+    }
+    if (
+      epoch !== matchEpoch
+      || stateSnapshot?.phase !== "playing"
+      || stateSnapshot?.turn !== "player"
+      || (Number(stateSnapshot.turnNumber) || 0) !== turnNumber
+    ) {
+      return;
+    }
+    game.endTurn("player");
+    presentation.reset();
+    state = render(refreshStateSnapshot());
+    if (state?.phase === "playing" && state.turn === "ai") {
+      void runAITurn(epoch);
+    }
   }
 
   function normalizeAction(action, side) {
@@ -490,6 +649,7 @@
   }
 
   function showFactionSelection() {
+    cancelPlayerTurnTimer();
     cancelOwnedTimers();
     matchEpoch += 1;
     aiBusy = false;
@@ -522,6 +682,7 @@
       return;
     }
     cancelOwnedTimers();
+    cancelPlayerTurnTimer();
     matchEpoch += 1;
     const epoch = matchEpoch;
     pendingEvents = [];
@@ -609,6 +770,7 @@
       return;
     }
     if (rawAction?.type === "CONCEDE") {
+      cancelPlayerTurnTimer();
       game.concede("player");
       render(refreshStateSnapshot());
       return;
@@ -693,6 +855,7 @@
     "pagehide",
     () => {
       pageHidden = true;
+      cancelPlayerTurnTimer();
       cancelOwnedTimers();
       if (frame) cancelAnimationFrame(frame);
       frame = 0;
@@ -716,6 +879,8 @@
         aiBusy: aiBusy && aiBusyEpoch === matchEpoch,
         aiBusyEpoch,
         pendingTimerCount: ownedTimers.size,
+        turnTimerActive: playerTurnTimer.isActive(),
+        turnTimerRemainingMs: Math.ceil(playerTurnTimer.remainingMs()),
         presentationRemainingMs: Math.ceil(presentation.remaining()),
         presentationLocked: presentation.isLocked(),
         inputLocked: Boolean(
