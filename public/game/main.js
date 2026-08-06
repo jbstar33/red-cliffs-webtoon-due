@@ -41,7 +41,7 @@
   const AI_CARD_ACTION_DELAY_MS = 520;
   const AI_ATTACK_ACTION_DELAY_MS = 610;
   const AI_END_TURN_DELAY_MS = 380;
-  const PLAYER_TURN_LIMIT_MS = 10_000;
+  const PLAYER_TURN_LIMIT_MS = 60_000;
 
   function createTurnTimer(options) {
     const config = options || {};

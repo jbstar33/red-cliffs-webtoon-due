@@ -465,7 +465,7 @@ test("presentation coordinator keeps primary cues readable without over-waiting"
   assert.equal(reduced.remaining(), 350);
 });
 
-test("player turn timer counts down ten seconds once and expires with its turn context", () => {
+test("player turn timer counts down sixty seconds once and expires with its turn context", () => {
   const createTurnTimer = loadTurnTimer();
   let now = 0;
   let sequence = 0;
@@ -474,7 +474,7 @@ test("player turn timer counts down ten seconds once and expires with its turn c
   const expirations = [];
   const timer = createTurnTimer({
     now: () => now,
-    durationMs: 10_000,
+    durationMs: 60_000,
     setTimer(callback, delay) {
       const scheduled = { id: ++sequence, callback, due: now + delay };
       timers.push(scheduled);
@@ -494,7 +494,10 @@ test("player turn timer counts down ten seconds once and expires with its turn c
     now = scheduled.due;
     scheduled.callback();
   }
-  assert.deepEqual(ticks.map((tick) => tick.seconds), [10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0]);
+  assert.deepEqual(
+    ticks.map((tick) => tick.seconds),
+    Array.from({ length: 61 }, (_, index) => 60 - index),
+  );
   assert.deepEqual(ticks.filter((tick) => tick.urgent).map((tick) => tick.seconds), [3, 2, 1, 0]);
   assert.deepEqual(expirations, [turnContext]);
   assert.equal(timer.isActive(), false);
@@ -537,7 +540,7 @@ test("AI actions and turn handoff never outrun their presentation deadline", asy
       aiBusyEpoch: 0,
       pendingTimerCount: 0,
       turnTimerActive: true,
-      turnTimerRemainingMs: 10000,
+      turnTimerRemainingMs: 60000,
       presentationRemainingMs: 0,
       presentationLocked: false,
       inputLocked: false,
@@ -550,7 +553,7 @@ test("player timeout auto-submits one legal action and then hands the turn to AI
     initialState: { turn: "player" },
   });
   assert.equal(harness.context.__TK_GAME_DEBUG__.getRuntimeState().turnTimerActive, true);
-  for (let second = 0; second < 10; second += 1) {
+  for (let second = 0; second < 60; second += 1) {
     await harness.runNextTimer();
   }
   const autoPlay = harness.trace.find(
@@ -789,7 +792,7 @@ test("runtime forwards formation placement without coupling board UI to rules", 
   assert.match(source, /"discord:start":\s*720/);
   assert.match(source, /"discord:hit":\s*700/);
   assert.match(source, /"status:empty-fort":\s*760/);
-  assert.match(source, /PLAYER_TURN_LIMIT_MS\s*=\s*10_000/);
+  assert.match(source, /PLAYER_TURN_LIMIT_MS\s*=\s*60_000/);
   assert.match(source, /getLegalActions\("player"\)[\s\S]*?filter\(\(action\) => action && action\.type !== "endTurn"\)/);
   assert.match(source, /broadcast\("turn:timeout"/);
 });
