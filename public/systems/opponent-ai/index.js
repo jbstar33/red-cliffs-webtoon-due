@@ -936,6 +936,7 @@
       damage_enemy_hero: 1.8,
       damage_random_enemy: 1.7,
       damage_all_enemies: 4.2,
+      damage_enemy_row: 3.35,
       heal_friendly_hero: 1.05,
       draw: 3.2,
       gain_armor: 0.9,
@@ -948,6 +949,8 @@
       ready_random_friendly: 2.0,
       steal_enemy_minion: 4.6,
       grant_all_allies_armor: 2.4,
+      reinforce_friendly_row: 2.7,
+      column_teamwork: 3.3,
       steal_enemy_minion_max_cost: 3.8,
       duel_target: 4.4,
       sow_discord: 3.2,
@@ -1569,6 +1572,14 @@
       .map((ability) => ability && ability.requiredRow)
       .filter(Boolean);
     let value = 0;
+    const columnAbility = abilityByOp(card, "column_teamwork");
+    if (columnAbility) {
+      const oppositeRow = row === "front" ? "rear" : "front";
+      const hasPartner = board.some(
+        (minion) => rowOf(minion) === oppositeRow && Number(minion.slot) === slot,
+      );
+      value += hasPartner ? 12 : -4.5;
+    }
     if (requiredRows.length) {
       value += requiredRows.includes(row) ? 16 : -30;
     }
@@ -1685,6 +1696,16 @@
         value += enemyBoard.length * amount * 0.42 + killable * 5.2 + shieldStrips * 1.5;
         if (enemyBoard.length === 0) value -= 13;
         else if (killable === 0 && shieldStrips === 0 && survivingThreat < 5) value -= 4.2;
+      } else if (ability.op === "damage_enemy_row") {
+        const row = ability.row === "rear" ? "rear" : "front";
+        const targets = enemyBoard.filter((minion) => rowOf(minion) === row);
+        const killable = targets.filter(
+          (minion) => !hasShield(minion) && healthOf(minion) <= amount,
+        ).length;
+        const shieldStrips = targets.filter(hasShield).length;
+        value += targets.length * amount * 0.5 + killable * 5.5 + shieldStrips * 1.6;
+        if (!targets.length) value -= 15;
+        else if (targets.length === 1 && !killable && !shieldStrips) value -= 2.2;
       } else if (ability.op === "heal_friendly_hero") {
         const missing = Math.max(
           0,
@@ -1740,6 +1761,30 @@
               0,
             )
           : -8;
+      } else if (ability.op === "reinforce_friendly_row") {
+        const row = ability.row === "rear" ? "rear" : "front";
+        const placementAddsTarget = action.placement?.row === row ? 1 : 0;
+        const targets =
+          friendlyBoard.filter((minion) => rowOf(minion) === row).length + placementAddsTarget;
+        const buffValue =
+          finite(ability.attack, 0) * 1.5 +
+          finite(ability.health, 0) * 1.05 +
+          finite(ability.armor, 0) * 1.2;
+        value += targets ? targets * buffValue : -9;
+      } else if (ability.op === "column_teamwork") {
+        const placement = action.placement;
+        const oppositeRow = placement?.row === "front" ? "rear" : "front";
+        const hasPartner = Boolean(
+          placement &&
+            friendlyBoard.some(
+              (minion) =>
+                rowOf(minion) === oppositeRow &&
+                Number(minion.slot) === Number(placement.slot),
+            ),
+        );
+        value += hasPartner
+          ? finite(ability.frontArmor, 0) * 2.1 + finite(ability.rearAttack, 0) * 2.8
+          : -7;
       } else if (ability.op === "sow_discord") {
         value += discordTacticalValue(enemyBoard);
       } else if (ability.op === "weaken_enemy_front") {
@@ -1930,7 +1975,11 @@
     if (hasGuard(card)) return true;
     return abilitiesOf(card).some((ability) => {
       if (!ability || ability.trigger !== "onPlay") return false;
-      if (["heal_friendly_hero", "gain_armor", "damage_all_enemies"].includes(ability.op)) {
+      if (
+        ["heal_friendly_hero", "gain_armor", "damage_all_enemies", "damage_enemy_row"].includes(
+          ability.op,
+        )
+      ) {
         return true;
       }
       if (
@@ -1980,6 +2029,29 @@
         return target && !hasShield(target) && finite(ability.amount, 0) >= healthOf(target);
       }
       if (ability.op === "grant_all_allies_armor") return boardOf(state, AI_SIDE).length >= 2;
+      if (ability.op === "damage_enemy_row") {
+        const row = ability.row === "rear" ? "rear" : "front";
+        const targets = boardOf(state, PLAYER_SIDE).filter((minion) => rowOf(minion) === row);
+        return targets.some(
+          (minion) => !hasShield(minion) && finite(ability.amount, 0) >= healthOf(minion),
+        );
+      }
+      if (ability.op === "reinforce_friendly_row") {
+        const row = ability.row === "rear" ? "rear" : "front";
+        return boardOf(state, AI_SIDE).filter((minion) => rowOf(minion) === row).length >= 2;
+      }
+      if (ability.op === "column_teamwork") {
+        const placement = action.placement;
+        const oppositeRow = placement?.row === "front" ? "rear" : "front";
+        return Boolean(
+          placement &&
+            boardOf(state, AI_SIDE).some(
+              (minion) =>
+                rowOf(minion) === oppositeRow &&
+                Number(minion.slot) === Number(placement.slot),
+            ),
+        );
+      }
       if (ability.op === "apply_burning_all") return boardOf(state, PLAYER_SIDE).length >= 3;
       return false;
     });

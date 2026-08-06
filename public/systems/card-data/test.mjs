@@ -67,7 +67,10 @@ var schema = api.getDslSchema();
   "empty_fort",
   "patience_counter",
   "apply_burning_all",
-  "faction_link"
+  "faction_link",
+  "damage_enemy_row",
+  "reinforce_friendly_row",
+  "column_teamwork"
 ].forEach(function newOp(op) {
   assert.ok(schema.ops.includes(op), "missing DSL op " + op);
 });
@@ -148,6 +151,48 @@ assert.equal(byId.shu_jiang_wei.attack, 2);
 assert.equal(byId.shu_jiang_wei.health, 3);
 assert.match(byId.shu_jiang_wei.text, /반간계.*공격력\+현재 체력.*가장 낮은.*가장 높은/);
 assert.match(byId.shu_jiang_wei.summaryText, /약한 적이 강한 다른 적을 공격/);
+
+assert.deepEqual(byId.wu_lu_xun.abilities, [
+  { name: "화소연영", trigger: "onPlay", op: "damage_enemy_row", row: "rear", amount: 1 },
+  { trigger: "onPlay", op: "draw", amount: 1 }
+]);
+assert.match(byId.wu_lu_xun.summaryText, /후열.*피해 1.*1장 뽑기/);
+assert.deepEqual(byId.nanman_mang_ya_chang.abilities[0], {
+  name: "쇄진",
+  trigger: "onPlay",
+  op: "damage_enemy_row",
+  row: "front",
+  amount: 1
+});
+assert.deepEqual(byId.wei_yu_jin.abilities[0], {
+  name: "철벽 군율",
+  trigger: "onPlay",
+  op: "reinforce_friendly_row",
+  row: "front",
+  attack: 0,
+  health: 0,
+  armor: 1
+});
+assert.deepEqual(byId.shu_liao_hua.abilities[0], {
+  name: "후퇴 엄호",
+  trigger: "onDeath",
+  op: "reinforce_friendly_row",
+  row: "rear",
+  attack: 0,
+  health: 1,
+  armor: 0
+});
+assert.deepEqual(byId.wu_cheng_pu.abilities[0], {
+  name: "강동 종대",
+  trigger: "onPlay",
+  op: "column_teamwork",
+  frontArmor: 1,
+  rearAttack: 1
+});
+assert.equal(byId.wei_li_dian.abilities[0].op, "draw");
+assert.equal(byId.wei_li_dian.abilities[0].trigger, "onDeath");
+assert.equal(byId.nanman_duo_si.abilities[0].op, "draw");
+assert.equal(byId.nanman_duo_si.abilities[0].trigger, "onDeath");
 
 assert.deepEqual(byId.shu_zhang_fei.keywords, ["수호", "의형제"]);
 assert.deepEqual(byId.shu_zhang_fei.abilities[0], {

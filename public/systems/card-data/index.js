@@ -27,6 +27,7 @@
     "damage_enemy_hero",
     "damage_random_enemy",
     "damage_all_enemies",
+    "damage_enemy_row",
     "heal_friendly_hero",
     "draw",
     "gain_armor",
@@ -39,6 +40,8 @@
     "ready_random_friendly",
     "steal_enemy_minion",
     "grant_all_allies_armor",
+    "reinforce_friendly_row",
+    "column_teamwork",
     "steal_enemy_minion_max_cost",
     "duel_target",
     "sow_discord",
@@ -616,7 +619,7 @@
       keywords: [],
       target: "none",
       abilities: [
-        { trigger: "onPlay", op: "damage_all_enemies", amount: 1 },
+        { name: "화소연영", trigger: "onPlay", op: "damage_enemy_row", row: "rear", amount: 1 },
         { trigger: "onPlay", op: "draw", amount: 1 }
       ],
       palette: { primary: "#274D58", secondary: "#D6864B", glow: "#FFCD73" },
@@ -825,8 +828,9 @@
     },
     {
       id: "shu_liao_hua", name: "요화", courtesy: "원검", faction: "촉",
-      cost: 1, attack: 1, health: 2, rarity: "일반", role: "노장",
-      flavor: "촉의 첫 전열과 마지막 전열을 모두 지켰다.", keywords: ["수호"], target: "none", abilities: [],
+      cost: 1, attack: 1, health: 1, rarity: "일반", role: "노장",
+      flavor: "촉의 첫 전열과 마지막 전열을 모두 지켰다.", keywords: ["수호"], target: "none",
+      abilities: [{ name: "후퇴 엄호", trigger: "onDeath", op: "reinforce_friendly_row", row: "rear", attack: 0, health: 1, armor: 0 }],
       palette: { primary: "#596847", secondary: "#BDA56B", glow: "#A7D47C" },
       portrait: { motif: "해진 촉기와 오래된 갑주", weapon: "장창", temperament: "묵묵한 끈기" }
     },
@@ -840,7 +844,8 @@
     {
       id: "wei_yu_jin", name: "우금", courtesy: "문칙", faction: "위",
       cost: 2, attack: 1, health: 4, rarity: "희귀", role: "진장",
-      flavor: "흐트러진 전열을 철벽 같은 군율로 세운다.", keywords: ["수호"], target: "none", abilities: [],
+      flavor: "흐트러진 전열을 철벽 같은 군율로 세운다.", keywords: ["수호"], target: "none",
+      abilities: [{ name: "철벽 군율", trigger: "onPlay", op: "reinforce_friendly_row", row: "front", attack: 0, health: 0, armor: 1 }],
       palette: { primary: "#40546A", secondary: "#AEB8C5", glow: "#7FA8D8" },
       portrait: { motif: "정렬된 방패벽과 청색 깃발", weapon: "군도", temperament: "엄정한 규율" }
     },
@@ -862,7 +867,8 @@
     {
       id: "wei_li_dian", name: "이전", courtesy: "만성", faction: "위",
       cost: 1, attack: 2, health: 1, rarity: "일반", role: "선봉",
-      flavor: "공을 다투기보다 전열의 빈틈을 먼저 메운다.", keywords: [], target: "none", abilities: [],
+      flavor: "공을 다투기보다 전열의 빈틈을 먼저 메운다.", keywords: [], target: "none",
+      abilities: [{ name: "군량 인계", trigger: "onDeath", op: "draw", amount: 1 }],
       palette: { primary: "#3F5870", secondary: "#B8A77E", glow: "#77B4DE" },
       portrait: { motif: "새벽 안개와 반쯤 든 군기", weapon: "장창", temperament: "겸손한 용기" }
     },
@@ -875,8 +881,9 @@
     },
     {
       id: "wu_cheng_pu", name: "정보", courtesy: "덕모", faction: "오",
-      cost: 2, attack: 2, health: 3, rarity: "희귀", role: "숙장",
-      flavor: "삼대의 깃발 아래 강동의 전열을 받쳐 왔다.", keywords: ["수호"], target: "none", abilities: [],
+      cost: 2, attack: 1, health: 3, rarity: "희귀", role: "숙장",
+      flavor: "삼대의 깃발 아래 강동의 두 열을 하나로 묶었다.", keywords: ["수호"], target: "none",
+      abilities: [{ name: "강동 종대", trigger: "onPlay", op: "column_teamwork", frontArmor: 1, rearAttack: 1 }],
       palette: { primary: "#35666A", secondary: "#D0B16D", glow: "#76D4CE" },
       portrait: { motif: "낡은 범선과 세 겹 군기", weapon: "철척사모", temperament: "노련한 충성" }
     },
@@ -906,7 +913,8 @@
     {
       id: "nanman_duo_si", name: "타사대왕", courtesy: "", faction: "남만",
       cost: 1, attack: 1, health: 2, rarity: "희귀", role: "독사왕",
-      flavor: "늪의 안개 속에서 독과 길을 함께 다룬다.", keywords: [], target: "none", abilities: [],
+      flavor: "늪의 안개 속에서 독과 보급로를 함께 숨긴다.", keywords: [], target: "none",
+      abilities: [{ name: "독낭 회수", trigger: "onDeath", op: "draw", amount: 1 }],
       palette: { primary: "#4B6239", secondary: "#B79B45", glow: "#9BDC5A" },
       portrait: { motif: "독안개와 뱀가죽 관", weapon: "독장", temperament: "음험한 인내" }
     },
@@ -919,8 +927,9 @@
     },
     {
       id: "nanman_mang_ya_chang", name: "망아장", courtesy: "", faction: "남만",
-      cost: 2, attack: 2, health: 3, rarity: "희귀", role: "맹장",
-      flavor: "거친 돌창이 밀림의 방패벽을 단숨에 밀어낸다.", keywords: [], target: "none", abilities: [],
+      cost: 2, attack: 2, health: 2, rarity: "희귀", role: "맹장",
+      flavor: "거친 돌창이 밀림의 전열을 통째로 밀어낸다.", keywords: [], target: "none",
+      abilities: [{ name: "쇄진", trigger: "onPlay", op: "damage_enemy_row", row: "front", amount: 1 }],
       palette: { primary: "#665033", secondary: "#C67B38", glow: "#EEA34C" },
       portrait: { motif: "코끼리 엄니와 갈라진 바위", weapon: "돌창", temperament: "완강한 힘" }
     },
@@ -1024,6 +1033,12 @@
       combo: "전투 뒤 체력이 줄어든 강한 적을 직접 피해나 공격으로 마무리합니다.",
       counter: "장수를 하나만 유지하거나 공격력이 낮은 장수를 섞어 반간계 피해를 줄입니다."
     },
+    shu_liao_hua: {
+      identity: "후열을 남기는 전열 노장",
+      plan: "전열에서 공격을 받아낸 뒤 유언으로 후열 전체의 체력을 1 높입니다.",
+      combo: "후열 장수를 먼저 배치한 다음 요화를 전열에 두면 죽음도 전력으로 바뀝니다.",
+      counter: "후열이 비었을 때 제거하면 후퇴 엄호를 불발시킬 수 있습니다."
+    },
     wei_cao_cao: {
       identity: "전군 강화 군주",
       plan: "넓게 전개된 아군 전체를 +1/+1 강화해 전장 우위를 굳힙니다.",
@@ -1069,6 +1084,18 @@
       combo: "체력이 낮은 아군 공격수 앞에 세워 한 턴의 공격 기회를 더 벌어줍니다.",
       counter: "공격 전에 직접 피해로 체력을 깎거나 여러 하수인의 공격을 집중해 돌파합니다."
     },
+    wei_yu_jin: {
+      identity: "전열 방어 군율가",
+      plan: "전열에 배치해 자신을 포함한 전열 전체에 방어력 1을 부여합니다.",
+      combo: "전열 장수를 둘 이상 모은 뒤 내면 광역 공격을 한 차례 흡수할 수 있습니다.",
+      counter: "후열부터 압박하거나 우금이 나오기 전에 전열 수를 줄여 효율을 낮춥니다."
+    },
+    wei_li_dian: {
+      identity: "보급을 넘기는 선봉",
+      plan: "공격력 2로 먼저 교환하고 쓰러질 때 카드 한 장을 보충합니다.",
+      combo: "전열에 두어 상대의 후열 접근을 막으면서 손패 손실 없이 교환합니다.",
+      counter: "공격하지 않고 체력 1을 남겨 두면 보급 시점을 늦출 수 있습니다."
+    },
     wu_sun_quan: {
       identity: "수군 전개 군주",
       plan: "자신이 출전한 뒤 남은 빈자리에 강동 수군을 최대 둘 소환합니다.",
@@ -1112,10 +1139,16 @@
       counter: "체력이 높은 하수인 위주로 전개하면 사격 효율이 낮습니다."
     },
     wu_lu_xun: {
-      identity: "연영 정리 도독",
-      plan: "모든 적 하수인에게 피해 1을 준 뒤 카드 한 장을 뽑아 전장과 손패를 함께 정비합니다.",
-      combo: "주유의 광역 피해 전후에 사용해 방패를 벗기거나 남은 체력 1 적을 정리합니다.",
-      counter: "체력이 높은 하수인을 적게 전개하면 광역 피해와 카드 보충의 동시 이득을 줄일 수 있습니다."
+      identity: "후열을 태우는 연영 도독",
+      plan: "적 후열 전체에 피해 1을 준 뒤 카드 한 장을 뽑아 전장과 손패를 함께 정비합니다.",
+      combo: "전열을 압박해 적이 후열에 모이게 만든 뒤 화소연영으로 지원진을 정리합니다.",
+      counter: "핵심 장수를 전열에 분산하거나 후열 체력을 2 이상 유지해 피해 효율을 낮춥니다."
+    },
+    wu_cheng_pu: {
+      identity: "세로 진형을 묶는 숙장",
+      plan: "같은 세로줄의 전열과 후열을 맞춘 뒤 정보로 방어와 공격을 동시에 강화합니다.",
+      combo: "정보를 빈쪽 열에 배치하면 전열 방어력 +1과 후열 공격력 +1을 함께 얻습니다.",
+      counter: "같은 세로줄의 한쪽 장수를 먼저 제거하면 강동 종대가 발동하지 않습니다."
     },
     nanman_meng_huo: {
       identity: "칠종칠금 남만왕",
@@ -1128,6 +1161,18 @@
       plan: "출전하며 선택한 적 캐릭터 하나에게 피해 2를 주어 원하는 표적을 정확히 끊습니다.",
       combo: "맹수의 공격으로 체력을 낮춘 적을 비도로 마무리해 공격 손실을 줄입니다.",
       counter: "방패 하수인으로 선택 피해를 한 번 막거나 체력 3 이상의 전열을 유지합니다."
+    },
+    nanman_duo_si: {
+      identity: "독낭을 남기는 보급책",
+      plan: "초반에 전장을 채우고 쓰러질 때 카드 한 장을 보충해 남만의 손패를 이어 갑니다.",
+      combo: "수호 장수 뒤에서 교환 시점을 조절하면 필요한 턴에 독낭을 회수할 수 있습니다.",
+      counter: "즉시 제거하지 않고 전장 칸을 차지하게 두면 드로우 시점을 늦출 수 있습니다."
+    },
+    nanman_mang_ya_chang: {
+      identity: "전열을 쓸어내는 돌창",
+      plan: "적 전열이 둘 이상 모였을 때 출전해 전열 전체에 피해 1을 줍니다.",
+      combo: "쇄진으로 수호 장수의 방패나 남은 체력을 정리한 뒤 후열로 공격로를 엽니다.",
+      counter: "전열을 한 명만 유지하거나 체력을 2 이상 남겨 광역 효율을 줄입니다."
     },
     nanman_wu_tu_gu: {
       identity: "등갑 방패 성벽",
@@ -1172,6 +1217,18 @@
     TOKEN_NAME_BY_ID[token.id] = token.name;
   });
 
+  function formationRowName(row) {
+    return row === "rear" ? "후열" : "전열";
+  }
+
+  function reinforcementText(ability) {
+    var parts = [];
+    if (ability.attack) parts.push("공격력 +" + ability.attack);
+    if (ability.health) parts.push("체력 +" + ability.health);
+    if (ability.armor) parts.push("방어력 +" + ability.armor);
+    return parts.join(", ");
+  }
+
   function describeAbility(card, ability) {
     var prefix = ability.trigger === "onDeath" ? "유언: " : "출전: ";
     switch (ability.op) {
@@ -1196,6 +1253,13 @@
         );
       case "damage_all_enemies":
         return prefix + "모든 적 하수인에게 피해를 " + ability.amount + " 줍니다.";
+      case "damage_enemy_row":
+        return (
+          prefix +
+          (ability.name ? ability.name + " — " : "") +
+          "적 " + formationRowName(ability.row) + " 장수 모두에게 피해를 " +
+          ability.amount + " 줍니다. 해당 열이 비어 있으면 발동하지 않습니다."
+        );
       case "heal_friendly_hero":
         return (
           prefix +
@@ -1282,6 +1346,20 @@
           " 가져온 하수인은 다음 내 턴부터 공격할 수 있습니다.";
       case "grant_all_allies_armor":
         return prefix + "모든 아군 하수인의 방어력을 +" + ability.amount + " 합니다.";
+      case "reinforce_friendly_row":
+        return (
+          prefix +
+          (ability.name ? ability.name + " — " : "") +
+          "아군 " + formationRowName(ability.row) + " 장수 모두에게 " +
+          reinforcementText(ability) + "을 부여합니다. 해당 열이 비어 있으면 발동하지 않습니다."
+        );
+      case "column_teamwork":
+        return (
+          prefix +
+          (ability.name ? ability.name + " — " : "") +
+          "이 장수와 같은 세로줄에 아군 전열·후열이 모두 있으면 전열은 방어력 +" +
+          ability.frontArmor + ", 후열은 공격력 +" + ability.rearAttack + "을 얻습니다."
+        );
       case "steal_enemy_minion_max_cost":
         return prefix + "비용이 " + ability.maxCost + " 이하인 선택한 적 하수인 하나를 내 전장으로 가져옵니다.";
       case "duel_target":
@@ -1360,6 +1438,8 @@
         );
       case "damage_all_enemies":
         return prefix + "모든 적 하수인에게 피해 " + ability.amount;
+      case "damage_enemy_row":
+        return prefix + "적 " + formationRowName(ability.row) + " 전체 피해 " + ability.amount;
       case "heal_friendly_hero":
         return prefix + "내 영웅 체력 " + ability.amount + " 회복";
       case "draw":
@@ -1425,6 +1505,10 @@
             : "비용 " + ability.minCost + " 이상 적 하수인 1명 매혹");
       case "grant_all_allies_armor":
         return prefix + "모든 아군 방어력 +" + ability.amount;
+      case "reinforce_friendly_row":
+        return prefix + "아군 " + formationRowName(ability.row) + " 전체 " + reinforcementText(ability);
+      case "column_teamwork":
+        return prefix + "같은 세로줄 전열 방어 +" + ability.frontArmor + "·후열 공격 +" + ability.rearAttack;
       case "steal_enemy_minion_max_cost":
         return prefix + "비용 " + ability.maxCost + " 이하 적 하수인 1명 획득";
       case "duel_target":
@@ -1654,6 +1738,7 @@
       "damage_enemy_hero",
       "damage_random_enemy",
       "damage_all_enemies",
+      "damage_enemy_row",
       "heal_friendly_hero",
       "draw",
       "gain_armor",
@@ -1681,6 +1766,30 @@
         ability.attack + ability.health < 1)
     ) {
       errors.push(path + ": 강화 수치가 올바르지 않음");
+    }
+    if (
+      ability.op === "reinforce_friendly_row" &&
+      (!isIntegerInRange(ability.attack, 0, 10) ||
+        !isIntegerInRange(ability.health, 0, 10) ||
+        !isIntegerInRange(ability.armor, 0, 10) ||
+        ability.attack + ability.health + ability.armor < 1)
+    ) {
+      errors.push(path + ": 열 증원 수치가 올바르지 않음");
+    }
+    if (
+      (ability.op === "damage_enemy_row" ||
+        ability.op === "reinforce_friendly_row") &&
+      ability.row !== "front" &&
+      ability.row !== "rear"
+    ) {
+      errors.push(path + ": 열 효과의 row는 front 또는 rear여야 함");
+    }
+    if (
+      ability.op === "column_teamwork" &&
+      (!isIntegerInRange(ability.frontArmor, 1, 10) ||
+        !isIntegerInRange(ability.rearAttack, 1, 10))
+    ) {
+      errors.push(path + ": 종대 연계 수치가 올바르지 않음");
     }
     if (
       ability.op === "summon_token" &&
@@ -2022,8 +2131,11 @@
       if (ability.op === "damage_enemy_hero") score += amount;
       if (ability.op === "damage_random_enemy") score += amount * 0.8;
       if (ability.op === "damage_all_enemies") score += amount * 2.1;
+      if (ability.op === "damage_enemy_row") score += amount * 1.45;
       if (ability.op === "heal_friendly_hero") score += amount * 0.55;
-      if (ability.op === "draw") score += amount * 1.8;
+      if (ability.op === "draw") {
+        score += amount * (ability.trigger === "onDeath" ? 1.05 : 1.8);
+      }
       if (ability.op === "gain_armor") score += amount * 0.5;
       if (ability.op === "reduce_random_hand_cost") score += amount * 0.8;
       if (ability.op === "ready_random_friendly") score += 2.5;
@@ -2031,6 +2143,12 @@
         score += ability.minCost == null ? 3 : 4.7;
       }
       if (ability.op === "grant_all_allies_armor") score += amount * 1.5;
+      if (ability.op === "reinforce_friendly_row") {
+        score += (ability.attack + ability.health) * 1.4 + ability.armor * 1.1;
+      }
+      if (ability.op === "column_teamwork") {
+        score += ability.frontArmor * 0.8 + ability.rearAttack * 0.9;
+      }
       if (ability.op === "steal_enemy_minion_max_cost") {
         score += (ability.maxCost || 0) * 1.2;
       }

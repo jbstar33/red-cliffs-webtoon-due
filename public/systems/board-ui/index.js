@@ -24,6 +24,7 @@
   const FORMATION_SLOT_COUNT = 3;
   const FORMATION_CARD_WIDTH = 112;
   const FORMATION_CARD_HEIGHT = 92;
+  const HAND_LIMIT = 10;
   const TAU = Math.PI * 2;
   const SYSTEM_FONT = '"Noto Serif KR", "Nanum Myeongjo", "Malgun Gothic", serif';
   const UI_FONT = '"Noto Sans KR", "Malgun Gothic", system-ui, sans-serif';
@@ -647,6 +648,31 @@
           text: durations[timedAbility.duration] || String(timedAbility.duration),
         });
       }
+    }
+    const rowStrike = abilities.find((ability) => ability && ability.op === "damage_enemy_row");
+    if (rowStrike) {
+      rows.push({
+        label: "공격 범위",
+        text: `적 ${rowStrike.row === "rear" ? "후열" : "전열"}에만 적용되며 다른 열은 피해를 받지 않습니다.`,
+      });
+    }
+    const rowReinforce = abilities.find(
+      (ability) => ability && ability.op === "reinforce_friendly_row",
+    );
+    if (rowReinforce) {
+      rows.push({
+        label: "지원 범위",
+        text: `아군 ${rowReinforce.row === "rear" ? "후열" : "전열"} 장수에게만 적용됩니다.`,
+      });
+    }
+    const columnTeamwork = abilities.find(
+      (ability) => ability && ability.op === "column_teamwork",
+    );
+    if (columnTeamwork && !tactics.linkCondition) {
+      rows.push({
+        label: "연계 조건",
+        text: "이 장수와 같은 세로줄에 전열·후열 장수가 모두 있어야 발동합니다.",
+      });
     }
     return rows.slice(0, 3);
   }
@@ -11475,6 +11501,30 @@
       }
     }
 
+    function drawHandCounter(count) {
+      const x = 1241;
+      const y = 708;
+      const width = 76;
+      const height = 26;
+      ctx.save();
+      roundedRect(ctx, x, y, width, height, 10);
+      const fill = ctx.createLinearGradient(x, y, x, y + height);
+      fill.addColorStop(0, "rgba(39, 31, 25, 0.96)");
+      fill.addColorStop(1, "rgba(17, 13, 12, 0.96)");
+      ctx.fillStyle = fill;
+      ctx.fill();
+      ctx.lineWidth = 1.2;
+      ctx.strokeStyle = count >= 10 ? "#e8674f" : "#b99a63";
+      ctx.stroke();
+      drawCenteredText(ctx, `손패 ${count}/${HAND_LIMIT}`, x + width / 2, y + 15, {
+        font: `800 11px ${SYSTEM_FONT}`,
+        color: count >= 10 ? "#ffd1c8" : "#f4dfb4",
+        stroke: "#140d08",
+        strokeWidth: 2,
+      });
+      ctx.restore();
+    }
+
     function handLayout(cards, index) {
       return playerHandLayoutGeometry(cards.length, index);
     }
@@ -11483,6 +11533,7 @@
       const width = 116;
       const height = 166;
       const livePoseKeys = new Set();
+      if (!overlayOnly) drawHandCounter(cards.length);
       cards.forEach((card, index) => {
         const layout = handLayout(cards, index);
         const poseKey = handPoseKey(card, index);
@@ -12430,6 +12481,9 @@
         "commander:lock": "다음 공격이 봉쇄되었습니다.",
         "formation:place": "선택한 진형 칸에 장수를 배치했습니다.",
         "formation:block": "전열이 후열을 보호하고 있습니다.",
+        "formation:row-strike": `${detail && detail.row === "rear" ? "후열" : "전열"} 일제 공격이 적중했습니다.`,
+        "formation:reinforce": `${detail && detail.row === "rear" ? "후열" : "전열"} 진형을 보강했습니다.`,
+        "formation:teamwork": "같은 세로줄의 전열·후열 협공이 발동했습니다.",
         "faction:link": "진영 연계가 발동했습니다.",
         "duel:start": "일기토가 시작되었습니다.",
         "duel:hit": "일기토의 칼날이 맞부딪쳤습니다.",
@@ -12657,6 +12711,9 @@
       } else if ([
         "formation:place",
         "formation:block",
+        "formation:row-strike",
+        "formation:reinforce",
+        "formation:teamwork",
         "faction:link",
         "duel:start",
         "duel:hit",

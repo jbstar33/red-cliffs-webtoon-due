@@ -78,6 +78,9 @@ const game = createGame({
 { trigger: "onPlay", op: "empty_fort", requiredRow: "rear", requiresSolo: true, charges: 1 }
 { trigger: "onPlay", op: "patience_counter", maxStored: 2 }
 { trigger: "onPlay", op: "apply_burning_all", amount: 1 }
+{ trigger: "onPlay", op: "damage_enemy_row", row: "front", amount: 1 }
+{ trigger: "onPlay", op: "reinforce_friendly_row", row: "front", attack: 0, health: 0, armor: 1 }
+{ trigger: "onPlay", op: "column_teamwork", frontArmor: 1, rearAttack: 1 }
 ```
 
 `faction_link`는 같은 진영의 다른 아군이 이미 있을 때만 발동합니다. 촉의
@@ -96,6 +99,12 @@ const game = createGame({
 서로 공격력만큼 피해를 주고받지만 공격권을 소비하지 않습니다. 동률은 전장 배열
 순서로 결정하며, 전열 보호는 적대 진영의 직접 공격 대상을 제한하는 규칙이므로
 같은 편끼리 충돌하는 반간계에는 적용되지 않습니다.
+
+`damage_enemy_row`는 지정한 `front` 또는 `rear`의 적에게만 피해를 줍니다.
+`reinforce_friendly_row`는 지정 열의 아군에게만 공격력·체력·방어력을 부여하며
+유언에서도 사용할 수 있습니다. `column_teamwork`는 출전 장수의 `slot`과 같은
+세로줄에 전열·후열 장수가 모두 있을 때만 발동해 전열 방어력과 후열 공격력을
+각각 강화합니다. 해당 열이 비었거나 세로열 짝이 없으면 효과만 불발합니다.
 
 적 장수 선택 효과는 카드 또는 능력의 `target`에 `"enemyMinion"`을 사용합니다.
 
@@ -180,6 +189,7 @@ const game = createGame({
 - `commander:reflect`: 반사 전후 횟수, 공격자, 방패 포함 실제 피해 결과
 - `commander:lock`: `pending` 또는 `active` 상태와 봉쇄 대상
 - `formation:place`, `formation:block`: 배치와 전열 보호
+- `formation:row-strike`, `formation:reinforce`, `formation:teamwork`: 열 공격·보강·세로열 협공
 - `faction:link`: 실제 발동한 연계 종류와 결과
 - `duel:start`, `duel:hit`: 일기토 시작과 동시 피해 결과
 - `status:burn`, `status:counter`, `status:intimidate`, `status:empty-fort`,

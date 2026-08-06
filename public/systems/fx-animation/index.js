@@ -40,7 +40,10 @@
     empty_fort: true,
     patience_counter: true,
     apply_burning_all: true,
-    faction_link: true
+    faction_link: true,
+    damage_enemy_row: true,
+    reinforce_friendly_row: true,
+    column_teamwork: true
   });
 
   function clamp(value, min, max) {
@@ -1399,6 +1402,57 @@
       });
     }
 
+    function firstAffectedTarget(detail) {
+      var affected = detail && detail.affectedTargets;
+      if (!Array.isArray(affected) || !affected.length) return detail && detail.target || null;
+      return affected[0] && (affected[0].target || affected[0]) || null;
+    }
+
+    function triggerRowStrike(detail) {
+      var row = detail.row === "rear" ? "rear" : "front";
+      addTacticalCue("row-strike", 0.72, detail, {
+        target: firstAffectedTarget(detail),
+        color: row === "rear" ? FORMATION_REAR : FORMATION_FRONT,
+        secondaryColor: RED,
+        label: row === "rear" ? "후열 일제 공격" : "전열 일제 공격",
+        signature: "formation:row-strike:" + row,
+        row: row,
+        layer: LAYER_ACTION,
+        cueAt: 0.16
+      });
+    }
+
+    function triggerRowReinforce(detail) {
+      var row = detail.row === "rear" ? "rear" : "front";
+      addTacticalCue("row-reinforce", 0.72, detail, {
+        target: firstAffectedTarget(detail),
+        color: row === "rear" ? FORMATION_REAR : STEEL,
+        secondaryColor: JADE,
+        label: row === "rear" ? "후열 보강" : "전열 보강",
+        signature: "formation:row-reinforce:" + row,
+        row: row,
+        cueAt: 0.12
+      });
+    }
+
+    function triggerFormationTeamwork(detail) {
+      var source = sourceBoardReference(detail) || {
+        zone: "board",
+        side: detail.side || detail.actor,
+        instanceId: identityPart(detail.source)
+      };
+      addTacticalCue("formation-teamwork", 0.78, detail, {
+        target: source,
+        color: FORMATION_FRONT,
+        secondaryColor: FORMATION_REAR,
+        label: "전후열 협공",
+        signature: "formation:column-teamwork",
+        slot: detail.slot,
+        layer: LAYER_OVERLAY,
+        cueAt: 0.15
+      });
+    }
+
     function triggerFactionLink(detail) {
       var linkKind = detail.linkKind || detail.result && detail.result.linkKind || "";
       var presentation = {
@@ -1591,6 +1645,15 @@
           break;
         case "formation:block":
           triggerFormationBlock(detail);
+          break;
+        case "formation:row-strike":
+          triggerRowStrike(detail);
+          break;
+        case "formation:reinforce":
+          triggerRowReinforce(detail);
+          break;
+        case "formation:teamwork":
+          triggerFormationTeamwork(detail);
           break;
         case "faction:link":
           triggerFactionLink(detail);
@@ -3018,6 +3081,60 @@
         ctx.lineTo(-14, 22);
         ctx.closePath();
         ctx.stroke();
+      } else if (job.kind === "row-strike") {
+        ctx.globalCompositeOperation = "lighter";
+        ctx.lineCap = "round";
+        for (var strike = -1; strike <= 1; strike += 1) {
+          var offset = strike * 22;
+          ctx.strokeStyle = rgba(strike === 0 ? job.secondaryColor : job.color, 0.9);
+          ctx.lineWidth = lerp(8, 2, t);
+          ctx.beginPath();
+          ctx.moveTo(-68 - pulse * 18, offset + 16);
+          ctx.lineTo(68 + pulse * 18, offset - 16);
+          ctx.stroke();
+        }
+      } else if (job.kind === "row-reinforce") {
+        ctx.globalCompositeOperation = "lighter";
+        ctx.strokeStyle = rgba(job.color, 0.92);
+        ctx.lineWidth = lerp(6, 2, t);
+        ctx.beginPath();
+        ctx.moveTo(-60, 32);
+        ctx.lineTo(-60, -30);
+        ctx.lineTo(60, -30);
+        ctx.lineTo(60, 32);
+        ctx.stroke();
+        ctx.strokeStyle = rgba(job.secondaryColor, 0.9);
+        for (var arrow = -1; arrow <= 1; arrow += 1) {
+          var arrowX = arrow * 34;
+          ctx.beginPath();
+          ctx.moveTo(arrowX, 30);
+          ctx.lineTo(arrowX, -12 - pulse * 12);
+          ctx.moveTo(arrowX - 8, -4 - pulse * 12);
+          ctx.lineTo(arrowX, -12 - pulse * 12);
+          ctx.lineTo(arrowX + 8, -4 - pulse * 12);
+          ctx.stroke();
+        }
+      } else if (job.kind === "formation-teamwork") {
+        ctx.globalCompositeOperation = "lighter";
+        ctx.lineWidth = lerp(7, 2, t);
+        ctx.strokeStyle = rgba(job.color, 0.94);
+        ctx.beginPath();
+        ctx.arc(0, -34, 15 + pulse * 4, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.strokeStyle = rgba(job.secondaryColor, 0.94);
+        ctx.beginPath();
+        ctx.arc(0, 34, 15 + pulse * 4, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.strokeStyle = rgba(PALE_GOLD, 0.92);
+        ctx.beginPath();
+        ctx.moveTo(0, -18);
+        ctx.lineTo(0, 18);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(-10, 0);
+        ctx.lineTo(0, 11);
+        ctx.lineTo(10, 0);
+        ctx.stroke();
       } else if (job.kind === "faction-link") {
         ctx.globalCompositeOperation = "lighter";
         ctx.strokeStyle = rgba(job.color, 0.94);
@@ -3989,6 +4106,9 @@
         case "commander-lock": drawCommanderLock(ctx, job); break;
         case "formation-place":
         case "formation-block":
+        case "row-strike":
+        case "row-reinforce":
+        case "formation-teamwork":
         case "faction-link":
         case "duel-start":
         case "duel-hit":

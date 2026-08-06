@@ -293,6 +293,8 @@
             faction_link_missing: "같은 진영 아군 없음",
             no_draw_requested: "뽑을 카드 없음",
             not_enough_enemy_minions: "적 장수 2명 미만",
+            row_empty: "해당 진형에 장수 없음",
+            column_pair_missing: "같은 세로줄의 전·후열 연계 없음",
             unsupported_op: "지원하지 않는 효과",
           };
           return `${cardName}: 효과 불발 · ${reasons[result.reason] || "조건 불충족"}`;
@@ -321,6 +323,9 @@
         if (detail.op === "damage_all_enemies") {
           return `${cardName}: 적 전장에 총 피해 ${result.actualDamage || 0}`;
         }
+        if (detail.op === "damage_enemy_row") {
+          return `${cardName}: 적 ${detail.row === "rear" ? "후열" : "전열"}에 총 피해 ${result.actualDamage || 0}`;
+        }
         if (detail.op === "heal_friendly_hero") {
           return `${cardName}: 아군 지휘관 체력 ${result.actualHealing || 0} 회복`;
         }
@@ -329,6 +334,12 @@
         }
         if (detail.op === "grant_all_allies_armor") {
           return `${cardName}: 아군 전장 방어력 +${result.armorGainedPerTarget || 0}`;
+        }
+        if (detail.op === "reinforce_friendly_row") {
+          return `${cardName}: 아군 ${detail.row === "rear" ? "후열" : "전열"} ${result.affectedTargets?.length || 0}명 강화`;
+        }
+        if (detail.op === "column_teamwork") {
+          return `${cardName}: 세로열 협공 · 전열 방어 +${result.frontArmor || 0} · 후열 공격 +${result.rearAttack || 0}`;
         }
         if (
           detail.op === "steal_enemy_minion" ||
@@ -393,6 +404,9 @@
           "commander:lock": "유목 군주의 봉쇄가 적용되었습니다.",
           "formation:place": "장수가 진형에 배치되었습니다.",
           "formation:block": "전열이 후열을 보호했습니다.",
+          "formation:row-strike": "선택한 적 진형을 일제 공격했습니다.",
+          "formation:reinforce": "아군 진형이 보강되었습니다.",
+          "formation:teamwork": "전열과 후열의 협공이 발동했습니다.",
           "faction:link": "진영 연계가 발동했습니다.",
           "duel:start": "일기토가 시작되었습니다.",
           "duel:hit": "일기토의 승부가 갈렸습니다.",
@@ -1164,6 +1178,34 @@
             preview.result.fizzled = true;
             preview.result.reason = "target_missing";
           }
+        } else if (op === "damage_enemy_row") {
+          const row = ability.row === "rear" ? "rear" : "front";
+          preview.target = { zone: "board", side: enemy, row, all: true };
+          preview.targets = state.boards[enemy]
+            .map((minion, index) =>
+              minion.row === row
+                ? { minion, target: { zone: "board", side: enemy, index } }
+                : null,
+            )
+            .filter(Boolean);
+          preview.result.row = row;
+          preview.result.affectedTargets = preview.targets.map(({ target }) => ({
+            target,
+            ...previewDamage(target, amount),
+          }));
+          preview.result.actualDamage = preview.result.affectedTargets.reduce(
+            (total, outcome) => total + outcome.actualDamage,
+            0,
+          );
+          preview.result.blockedByShield = preview.result.affectedTargets.some(
+            (outcome) => outcome.blockedByShield,
+          );
+          preview.result.shieldBroken = preview.result.blockedByShield;
+          if (!preview.targets.length) {
+            preview.result.success = false;
+            preview.result.fizzled = true;
+            preview.result.reason = "row_empty";
+          }
         } else if (op === "heal_friendly_hero") {
           const hero = state.heroes[side];
           preview.target = { zone: "hero", side };
@@ -1200,6 +1242,70 @@
               armorAfter: armorBefore + armorAmount,
             };
           });
+        } else if (op === "reinforce_friendly_row") {
+          const row = ability.row === "rear" ? "rear" : "front";
+          const attack = Math.max(0, numberOr(ability.attack, 0));
+          const health = Math.max(0, numberOr(ability.health, 0));
+          const armor = Math.max(0, numberOr(ability.armor, 0));
+          preview.target = { zone: "board", side, row, all: true };
+          preview.targets = state.boards[side]
+            .map((minion, index) =>
+              minion.row === row
+                ? { minion, target: { zone: "board", side, index } }
+                : null,
+            )
+            .filter(Boolean);
+          preview.result.row = row;
+          preview.result.buff = { attack, health, armor };
+          preview.result.affectedTargets = preview.targets.map(({ minion, target }) => ({
+            target,
+            id: minion.id,
+            instanceId: minion.instanceId,
+            attackBefore: minion.currentAttack,
+            attackAfter: minion.currentAttack + attack,
+            healthBefore: minion.currentHealth,
+            healthAfter: minion.currentHealth + health,
+            armorBefore: Math.max(0, numberOr(minion.currentArmor, numberOr(minion.armor, 0))),
+            armorAfter:
+              Math.max(0, numberOr(minion.currentArmor, numberOr(minion.armor, 0))) + armor,
+          }));
+          if (!preview.targets.length) {
+            preview.result.success = false;
+            preview.result.fizzled = true;
+            preview.result.reason = "row_empty";
+          }
+        } else if (op === "column_teamwork") {
+          const slot = Number.isInteger(source?.slot) ? source.slot : -1;
+          const front = state.boards[side].find(
+            (minion) => minion.row === "front" && minion.slot === slot,
+          );
+          const rear = state.boards[side].find(
+            (minion) => minion.row === "rear" && minion.slot === slot,
+          );
+          preview.target = { zone: "board", side, slot, column: true };
+          preview.result.frontArmor = Math.max(0, numberOr(ability.frontArmor, 0));
+          preview.result.rearAttack = Math.max(0, numberOr(ability.rearAttack, 0));
+          if (slot < 0 || !front || !rear) {
+            preview.result.success = false;
+            preview.result.fizzled = true;
+            preview.result.reason = "column_pair_missing";
+          } else {
+            const frontIndex = state.boards[side].findIndex(
+              (minion) => minion.instanceId === front.instanceId,
+            );
+            const rearIndex = state.boards[side].findIndex(
+              (minion) => minion.instanceId === rear.instanceId,
+            );
+            preview.targets = [
+              { minion: front, target: { zone: "board", side, index: frontIndex, row: "front", slot } },
+              { minion: rear, target: { zone: "board", side, index: rearIndex, row: "rear", slot } },
+            ];
+            preview.result.affectedTargets = preview.targets.map(({ minion, target }) => ({
+              target,
+              id: minion.id,
+              instanceId: minion.instanceId,
+            }));
+          }
         } else if (
           op === "steal_enemy_minion" ||
           op === "steal_enemy_minion_max_cost"
@@ -1443,6 +1549,9 @@
           sourceName: source ? source.name || "" : "",
           op,
           amount,
+          row: ability.row || null,
+          frontArmor: numberOr(ability.frontArmor, 0),
+          rearAttack: numberOr(ability.rearAttack, 0),
           source: source ? source.instanceId : null,
           sourceCard: source
             ? { id: source.id, instanceId: source.instanceId, name: source.name || "" }
@@ -1613,6 +1722,30 @@
               op,
             });
           });
+        } else if (op === "damage_enemy_row") {
+          const ownsDeathBatch = !resolvingDeaths;
+          if (ownsDeathBatch) resolvingDeaths = true;
+          try {
+            preview.targets.forEach(({ minion }) => {
+              damageMinion(enemy, minion, amount, {
+                side,
+                instanceId: source.instanceId,
+                op,
+              });
+            });
+          } finally {
+            if (ownsDeathBatch) resolvingDeaths = false;
+          }
+          if (ownsDeathBatch) resolveDeaths();
+          publish("formation:row-strike", {
+            actor: side,
+            side: enemy,
+            row: preview.result.row,
+            amount,
+            source: source.instanceId,
+            target: deepClone(preview.target),
+            affectedTargets: deepClone(preview.result.affectedTargets),
+          });
         } else if (op === "heal_friendly_hero") {
           const hero = state.heroes[side];
           hero.health = clamp(hero.health + amount, 0, hero.maxHealth);
@@ -1633,6 +1766,47 @@
             minion.currentArmor = currentArmor + armorAmount;
             minion.armor = minion.currentArmor;
           });
+        } else if (op === "reinforce_friendly_row") {
+          const armorAmount = Math.max(0, numberOr(ability.armor, 0));
+          preview.targets.forEach(({ minion }) => {
+            buffMinion(minion, ability);
+            const currentArmor = Math.max(
+              0,
+              numberOr(minion.currentArmor, numberOr(minion.armor, 0)),
+            );
+            minion.currentArmor = currentArmor + armorAmount;
+            minion.armor = minion.currentArmor;
+          });
+          publish("formation:reinforce", {
+            actor: side,
+            side,
+            row: preview.result.row,
+            source: source.instanceId,
+            buff: deepClone(preview.result.buff),
+            affectedTargets: deepClone(preview.result.affectedTargets),
+          });
+        } else if (op === "column_teamwork") {
+          const front = preview.targets.find(({ minion }) => minion.row === "front")?.minion;
+          const rear = preview.targets.find(({ minion }) => minion.row === "rear")?.minion;
+          if (front && rear) {
+            const armorAmount = preview.result.frontArmor;
+            front.currentArmor =
+              Math.max(0, numberOr(front.currentArmor, numberOr(front.armor, 0))) +
+              armorAmount;
+            front.armor = front.currentArmor;
+            buffMinion(rear, { attack: preview.result.rearAttack, health: 0 });
+            publish("formation:teamwork", {
+              actor: side,
+              side,
+              slot: source.slot,
+              source: source.instanceId,
+              front: front.instanceId,
+              rear: rear.instanceId,
+              frontArmor: armorAmount,
+              rearAttack: preview.result.rearAttack,
+              affectedTargets: deepClone(preview.result.affectedTargets),
+            });
+          }
         } else if (
           op === "steal_enemy_minion" ||
           op === "steal_enemy_minion_max_cost"
@@ -2814,8 +2988,8 @@
         state.decks.ai = normalizeDeck(config.aiDeck, definitionMap, makeCard);
         shuffle(state.decks.player);
         shuffle(state.decks.ai);
-        balanceOpeningCards(state.decks.player, 4);
-        balanceOpeningCards(state.decks.ai, 4);
+        balanceOpeningCards(state.decks.player, 5);
+        balanceOpeningCards(state.decks.ai, 5);
         publish("game:start", {
           seed: String(seed),
           playerDeckSize: state.decks.player.length,
@@ -2825,8 +2999,8 @@
             ai: state.commanders.ai.id,
           },
         });
-        for (let index = 0; index < 3; index += 1) drawCard("player", true, null);
-        for (let index = 0; index < 4; index += 1) drawCard("ai", true, null);
+        for (let index = 0; index < 5; index += 1) drawCard("player", true, null);
+        for (let index = 0; index < 5; index += 1) drawCard("ai", true, null);
         startTurn("player", true);
         touch();
       }

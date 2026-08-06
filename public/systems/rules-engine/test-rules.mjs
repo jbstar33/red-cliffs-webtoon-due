@@ -396,6 +396,61 @@ const definitions = [
       { trigger: "onPlay", op: "summon_token", tokenId: "test_discord_strong", count: 1 },
     ],
   },
+  {
+    id: "test-formation-unit",
+    name: "진형 시험병",
+    faction: "위",
+    cost: 0,
+    attack: 1,
+    health: 3,
+    keywords: [],
+    target: "none",
+    abilities: [],
+  },
+  {
+    id: "test-row-strike",
+    name: "전열 쇄진 시험",
+    faction: "남만",
+    cost: 0,
+    attack: 1,
+    health: 2,
+    keywords: [],
+    target: "none",
+    abilities: [{ trigger: "onPlay", op: "damage_enemy_row", row: "front", amount: 1 }],
+  },
+  {
+    id: "test-row-reinforce",
+    name: "전열 보강 시험",
+    faction: "위",
+    cost: 0,
+    attack: 1,
+    health: 2,
+    keywords: [],
+    target: "none",
+    abilities: [
+      {
+        trigger: "onPlay",
+        op: "reinforce_friendly_row",
+        row: "front",
+        attack: 0,
+        health: 0,
+        armor: 1,
+      },
+    ],
+  },
+  {
+    id: "test-column-teamwork",
+    name: "종대 협공 시험",
+    faction: "오",
+    cost: 0,
+    attack: 1,
+    health: 2,
+    keywords: [],
+    target: "none",
+    abilities: [
+      { trigger: "onPlay", op: "column_teamwork", frontArmor: 1, rearAttack: 1 },
+    ],
+  },
 ];
 
 const tokens = [
@@ -549,9 +604,10 @@ function testInitialStateAndSnapshotIsolation() {
   assert.equal(state.turn, "player");
   assert.equal(state.heroes.player.mana, 1);
   assert.equal(state.heroes.player.maxMana, 1);
-  assert.equal(state.hands.player.length, 4);
-  assert.equal(state.hands.ai.length, 4);
-  assert.equal(state.decks.player.length, 16);
+  assert.equal(state.hands.player.length, 6);
+  assert.equal(state.hands.ai.length, 5);
+  assert.equal(state.decks.player.length, 14);
+  assert.equal(state.decks.ai.length, 15);
   assert.ok(events.includes("game:start"));
   assert.ok(events.includes("turn:start"));
 
@@ -559,7 +615,7 @@ function testInitialStateAndSnapshotIsolation() {
   state.hands.player.length = 0;
   const untouched = game.getState();
   assert.equal(untouched.heroes.player.health, 30);
-  assert.equal(untouched.hands.player.length, 4);
+  assert.equal(untouched.hands.player.length, 6);
 }
 
 function testOpeningHandCostBalance() {
@@ -581,9 +637,10 @@ function testOpeningHandCostBalance() {
       const lowCostCards = state.hands[side].filter(
         (card) => card.currentCost <= 2,
       ).length;
+      assert.ok(lowCostCards >= 1, `${side} opening hand needs a low-cost card for seed ${seed}`);
       assert.ok(
-        lowCostCards >= 1 && lowCostCards <= 2,
-        `${side} opening hand must contain one or two low-cost cards for seed ${seed}`,
+        lowCostCards <= (side === "player" ? 3 : 2),
+        `${side} opening curve must remain controlled for seed ${seed}`,
       );
     }
   }
@@ -2526,6 +2583,95 @@ function testSignatureGeneralAbilitiesAndStatuses() {
   assert.equal(lubu.getState().boards.player[0].currentHealth, 5);
 }
 
+function testRowTacticsAndColumnTeamwork() {
+  const rowEvents = [];
+  const rowStrike = createGame({
+    definitions,
+    tokens,
+    playerDeck: deckOf("test-row-strike"),
+    aiDeck: deckOf("test-formation-unit"),
+    seed: 731,
+    emit: (type, detail) => rowEvents.push({ type, detail }),
+  });
+  rowStrike.endTurn("player");
+  playFirst(
+    rowStrike,
+    "playCard",
+    (action) => action.placement?.row === "front" && action.placement.slot === 0,
+  );
+  playFirst(
+    rowStrike,
+    "playCard",
+    (action) => action.placement?.row === "rear" && action.placement.slot === 0,
+  );
+  rowStrike.endTurn("ai");
+  playFirst(rowStrike, "playCard");
+  const struckBoard = rowStrike.getState().boards.ai;
+  assert.equal(struckBoard.find((minion) => minion.row === "front").currentHealth, 2);
+  assert.equal(struckBoard.find((minion) => minion.row === "rear").currentHealth, 3);
+  assert.ok(
+    rowEvents.some(
+      (event) => event.type === "formation:row-strike" && event.detail.row === "front",
+    ),
+  );
+
+  const reinforceEvents = [];
+  const reinforce = createGame({
+    definitions,
+    tokens,
+    playerDeck: deckOf("test-row-reinforce"),
+    aiDeck: deckOf("test-formation-unit"),
+    seed: 732,
+    emit: (type, detail) => reinforceEvents.push({ type, detail }),
+  });
+  playFirst(
+    reinforce,
+    "playCard",
+    (action) => action.placement?.row === "front" && action.placement.slot === 0,
+  );
+  playFirst(
+    reinforce,
+    "playCard",
+    (action) => action.placement?.row === "rear" && action.placement.slot === 0,
+  );
+  const reinforcedBoard = reinforce.getState().boards.player;
+  assert.equal(reinforcedBoard.find((minion) => minion.row === "front").currentArmor, 2);
+  assert.equal(reinforcedBoard.find((minion) => minion.row === "rear").currentArmor, 0);
+  assert.ok(reinforceEvents.some((event) => event.type === "formation:reinforce"));
+
+  const teamworkEvents = [];
+  const teamwork = createGame({
+    definitions,
+    tokens,
+    playerDeck: deckOf("test-column-teamwork"),
+    aiDeck: deckOf("test-formation-unit"),
+    seed: 733,
+    emit: (type, detail) => teamworkEvents.push({ type, detail }),
+  });
+  playFirst(
+    teamwork,
+    "playCard",
+    (action) => action.placement?.row === "front" && action.placement.slot === 0,
+  );
+  playFirst(
+    teamwork,
+    "playCard",
+    (action) => action.placement?.row === "rear" && action.placement.slot === 0,
+  );
+  const teamworkBoard = teamwork.getState().boards.player;
+  assert.equal(teamworkBoard.find((minion) => minion.row === "front").currentArmor, 1);
+  assert.equal(teamworkBoard.find((minion) => minion.row === "rear").currentAttack, 2);
+  assert.ok(
+    teamworkEvents.some(
+      (event) =>
+        event.type === "effect:trigger" &&
+        event.detail.op === "column_teamwork" &&
+        event.detail.result.reason === "column_pair_missing",
+    ),
+  );
+  assert.ok(teamworkEvents.some((event) => event.type === "formation:teamwork"));
+}
+
 function selectBattleAction(game) {
   const legal = game.getLegalActions();
   const lethal = legal.find((action) => {
@@ -2601,6 +2747,7 @@ testFormationPlacementProtectionAndCapacity();
 testJiangWeiSowsDiscordBetweenEnemyMinions();
 testFourFactionLinks();
 testSignatureGeneralAbilitiesAndStatuses();
+testRowTacticsAndColumnTeamwork();
 const battle = testCompleteTwentyCardBattle();
 
 console.log(

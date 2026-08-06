@@ -34,6 +34,9 @@
     "commander:nomad": "commander-nomad",
     "formation:place": "formation-place",
     "formation:block": "formation-block",
+    "formation:row-strike": "row-strike",
+    "formation:reinforce": "row-reinforce",
+    "formation:teamwork": "formation-teamwork",
     "duel:start": "duel-start",
     "duel:hit": "duel-hit",
     "discord:start": "discord-start",
@@ -83,6 +86,9 @@
     "commander-nomad": { duration: 0.48, cooldown: 0.08, same: 2, priority: 3 },
     "formation-place": { duration: 0.44, cooldown: 0.035, same: 2, priority: 2 },
     "formation-block": { duration: 0.5, cooldown: 0.075, same: 2, priority: 3 },
+    "row-strike": { duration: 0.52, cooldown: 0.065, same: 2, priority: 4 },
+    "row-reinforce": { duration: 0.52, cooldown: 0.065, same: 2, priority: 3 },
+    "formation-teamwork": { duration: 0.58, cooldown: 0.075, same: 2, priority: 4 },
     "link-brotherhood": { duration: 0.52, cooldown: 0.065, same: 2, priority: 3 },
     "link-strategy": { duration: 0.56, cooldown: 0.065, same: 2, priority: 3 },
     "link-kindle": { duration: 0.58, cooldown: 0.065, same: 2, priority: 3 },
@@ -99,7 +105,7 @@
     invalid: { duration: 0.22, cooldown: 0.09, same: 2, priority: 1 },
   });
   const TACTICAL_SOUND_NAMES = new Set([
-    "formation-place", "formation-block",
+    "formation-place", "formation-block", "row-strike", "row-reinforce", "formation-teamwork",
     "link-brotherhood", "link-strategy", "link-kindle", "link-raid",
     "duel-start", "duel-hit", "discord-start", "discord-hit",
     "status-burn", "status-counter", "status-intimidate",
@@ -113,6 +119,9 @@
     "patience_counter",
     "apply_burning_all",
     "faction_link",
+    "damage_enemy_row",
+    "reinforce_friendly_row",
+    "column_teamwork",
   ]);
   const EFFECT_RESULT_DEDUPE_SECONDS = 0.085;
   const TACTICAL_EVENT_DEDUPE_SECONDS = 0.055;
@@ -1608,6 +1617,56 @@
       });
     }
 
+    function soundRowStrike(voice, volume) {
+      const now = voice.startAt;
+      [-0.01, 0.07, 0.14].forEach((offset, index) => {
+        noise(voice, {
+          start: now + Math.max(0, offset),
+          duration: 0.15,
+          seed: `row-strike:${index}`,
+          rate: 1.55 + index * 0.18,
+          filter: "bandpass",
+          frequency: 2500 - index * 360,
+          endFrequency: 480,
+          q: 1.15,
+          gain: (0.05 - index * 0.006) * volume,
+        });
+      });
+      addWarDrum(voice, now + 0.17, volume * 0.44, 0.66, "row-strike:impact");
+    }
+
+    function soundRowReinforce(voice, volume) {
+      const now = voice.startAt;
+      addWarDrum(voice, now, volume * 0.34, 0.82, "row-reinforce:drum");
+      [262, 330, 440].forEach((frequency, index) => {
+        tone(voice, {
+          start: now + 0.055 + index * 0.052,
+          duration: 0.28 - index * 0.025,
+          frequency,
+          endFrequency: frequency * 1.08,
+          type: index ? "sine" : "triangle",
+          gain: (0.041 - index * 0.006) * volume,
+          sustain: 0.012 * volume,
+        });
+      });
+    }
+
+    function soundFormationTeamwork(voice, volume) {
+      const now = voice.startAt;
+      [196, 392].forEach((frequency, index) => {
+        tone(voice, {
+          start: now + index * 0.055,
+          duration: 0.42 - index * 0.04,
+          frequency,
+          endFrequency: frequency * 1.18,
+          type: index ? "sine" : "triangle",
+          gain: (0.052 - index * 0.009) * volume,
+          sustain: 0.017 * volume,
+        });
+      });
+      addWarDrum(voice, now + 0.16, volume * 0.38, 0.72, "formation-teamwork:join");
+    }
+
     function soundLinkBrotherhood(voice, volume) {
       const now = voice.startAt;
       [330, 495, 660].forEach((frequency, index) => {
@@ -2083,6 +2142,9 @@
         }
         else if (normalized === "formation-place") soundFormationPlace(voice, volume);
         else if (normalized === "formation-block") soundFormationBlock(voice, volume);
+        else if (normalized === "row-strike") soundRowStrike(voice, volume);
+        else if (normalized === "row-reinforce") soundRowReinforce(voice, volume);
+        else if (normalized === "formation-teamwork") soundFormationTeamwork(voice, volume);
         else if (normalized === "link-brotherhood") soundLinkBrotherhood(voice, volume);
         else if (normalized === "link-strategy") soundLinkStrategy(voice, volume);
         else if (normalized === "link-kindle") soundLinkKindle(voice, volume);
@@ -2585,6 +2647,15 @@
           return playTactical("formation-place", data);
         case "formation:block":
           return playTactical("formation-block", data);
+        case "formation:row-strike":
+          rememberTacticalAbility("damage_enemy_row");
+          return playTactical("row-strike", data, { volume: 0.84 });
+        case "formation:reinforce":
+          rememberTacticalAbility("reinforce_friendly_row");
+          return playTactical("row-reinforce", data, { volume: 0.78 });
+        case "formation:teamwork":
+          rememberTacticalAbility("column_teamwork");
+          return playTactical("formation-teamwork", data, { volume: 0.82 });
         case "faction:link": {
           const linkSounds = {
             brotherhood: "link-brotherhood",

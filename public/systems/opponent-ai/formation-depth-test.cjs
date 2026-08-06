@@ -138,6 +138,38 @@ function simulate(state, action) {
       weakest.unit.currentHealth -= strongest.unit.currentAttack;
       next.boards.player = next.boards.player.filter((unit) => unit.currentHealth > 0);
     }
+    const rowStrike = played.abilities.find((ability) => ability.op === "damage_enemy_row");
+    if (rowStrike) {
+      next.boards.player.forEach((unit) => {
+        if (unit.row === rowStrike.row) unit.currentHealth -= Number(rowStrike.amount || 1);
+      });
+      next.boards.player = next.boards.player.filter((unit) => unit.currentHealth > 0);
+    }
+    const rowReinforce = played.abilities.find(
+      (ability) => ability.op === "reinforce_friendly_row",
+    );
+    if (rowReinforce) {
+      next.boards.ai.forEach((unit) => {
+        if (unit.row !== rowReinforce.row) return;
+        unit.currentAttack += Number(rowReinforce.attack || 0);
+        unit.currentHealth += Number(rowReinforce.health || 0);
+        unit.maxHealth += Number(rowReinforce.health || 0);
+        unit.currentArmor = Number(unit.currentArmor || 0) + Number(rowReinforce.armor || 0);
+      });
+    }
+    const teamwork = played.abilities.find((ability) => ability.op === "column_teamwork");
+    if (teamwork) {
+      const front = next.boards.ai.find(
+        (unit) => unit.row === "front" && unit.slot === summoned.slot,
+      );
+      const rear = next.boards.ai.find(
+        (unit) => unit.row === "rear" && unit.slot === summoned.slot,
+      );
+      if (front && rear) {
+        front.currentArmor = Number(front.currentArmor || 0) + Number(teamwork.frontArmor || 0);
+        rear.currentAttack += Number(teamwork.rearAttack || 0);
+      }
+    }
     return next;
   }
   if (action.type === "attack") {
@@ -226,6 +258,47 @@ assertPlacement(
   "rear",
   "empty-fort-rear",
 );
+
+{
+  const state = baseState();
+  state.boards.ai = [minion("column-partner", 2, 4, { row: "front", slot: 2 })];
+  state.hands.ai = [
+    card("column-teamwork", 2, 1, 3, {
+      faction: "오",
+      abilities: [{ op: "column_teamwork", frontArmor: 1, rearAttack: 1 }],
+    }),
+  ];
+  const selected = choose(
+    state,
+    playActions(0).concat({ type: "endTurn", side: "ai" }),
+    "column-teamwork-pair",
+  );
+  assert.deepStrictEqual(
+    { row: selected.placement.row, slot: selected.placement.slot },
+    { row: "rear", slot: 2 },
+    "column teamwork should complete the occupied vertical lane",
+  );
+}
+
+{
+  const state = baseState();
+  state.boards.player = [
+    minion("front-fragile-a", 4, 1, { row: "front", slot: 0 }),
+    minion("front-fragile-b", 3, 1, { row: "front", slot: 1 }),
+    minion("rear-healthy", 2, 5, { row: "rear", slot: 0 }),
+  ];
+  state.hands.ai = [
+    card("front-row-strike", 2, 1, 2, {
+      abilities: [{ op: "damage_enemy_row", row: "front", amount: 1 }],
+    }),
+    card("rear-row-strike", 2, 1, 2, {
+      abilities: [{ op: "damage_enemy_row", row: "rear", amount: 1 }],
+    }),
+  ];
+  const actions = playActions(0).concat(playActions(1), { type: "endTurn", side: "ai" });
+  const selected = choose(state, actions, "row-strike-kills");
+  assert.strictEqual(selected.handIndex, 0, "AI should prefer the row strike that removes two threats");
+}
 
 {
   const state = baseState();
