@@ -1113,6 +1113,41 @@
     return null;
   }
 
+  function commanderPressure(state) {
+    const aiHero = (state.heroes && state.heroes.ai) || {};
+    const enemyHero = (state.heroes && state.heroes.player) || {};
+    const aiHealth = effectiveHealth(aiHero);
+    const enemyHealth = effectiveHealth(enemyHero);
+    const ready = readyDamage(state, AI_SIDE);
+    const friendlyThreat = futureBoardDamage(state, AI_SIDE);
+    const enemyThreat = futureBoardDamage(state, PLAYER_SIDE);
+    const blocked = enemyGuards(state, PLAYER_SIDE).length > 0;
+    const lethal = !blocked && ready >= enemyHealth;
+    const emergency = enemyThreat >= Math.max(1, aiHealth - 5);
+    const safeRace = aiHealth >= enemyThreat + 5;
+    const boardLead = friendlyThreat >= enemyThreat + 3;
+    const press =
+      !blocked &&
+      !emergency &&
+      (
+        lethal ||
+        enemyHealth <= 14 ||
+        (enemyHealth <= 20 && ready >= 6) ||
+        (safeRace && boardLead && ready >= 5)
+      );
+    return {
+      aiHealth,
+      enemyHealth,
+      ready,
+      friendlyThreat,
+      enemyThreat,
+      lethal,
+      emergency,
+      safeRace,
+      press,
+    };
+  }
+
   function commanderPowerText(state, action) {
     const hero = (state.heroes && state.heroes.ai) || {};
     const commander = (state.commanders && state.commanders.ai) || {};
@@ -1341,7 +1376,7 @@
     return 0;
   }
 
-  function attackTactics(state, action) {
+  function attackTactics(state, action, legalActions) {
     const board = boardOf(state, AI_SIDE);
     const attacker = board[Number(action.attackerIndex)];
     const target = targetEntity(state, action.target);
@@ -1375,16 +1410,31 @@
       ? Math.min(healthOf(attacker), selfDamage) * 1.3 +
         (healthOf(attacker) <= selfDamage ? 14 + minionValue(attacker) * 1.1 : 0)
       : 0;
+    const pressure = commanderPressure(state);
+    const heroAttackAvailable = Array.isArray(legalActions) && legalActions.some(
+      (candidate) =>
+        candidate &&
+        candidate.type === "attack" &&
+        Number(candidate.attackerIndex) === Number(action.attackerIndex) &&
+        candidate.target &&
+        candidate.target.zone === "hero",
+    );
 
     if (action.target.zone === "hero") {
       const health = effectiveHealth(target);
       if (attack >= health) return WIN_SCORE * 0.72;
       const enemyBoard = boardOf(state, PLAYER_SIDE);
       const totalReadyDamage = readyDamage(state, AI_SIDE);
-      let value = attack * 1.05 - recoilValue;
+      let value = attack * 1.65 - recoilValue;
       if (!enemyBoard.length) value += 2.2;
       if (totalReadyDamage >= health) value += 80 + attack * 0.5;
-      if (health <= 10) value += (11 - health) * 0.6;
+      if (health <= 20) value += (21 - health) * 0.42;
+      if (pressure.press) {
+        value += 7.5 + attack * 0.85 + Math.min(8, totalReadyDamage * 0.38);
+      }
+      if (pressure.safeRace && pressure.friendlyThreat > pressure.enemyThreat) value += 2.4;
+      if (pressure.emergency && !pressure.lethal) value -= 10;
+      if (isSecondAttack && healthOf(attacker) <= selfDamage && !pressure.lethal) value -= 24;
       if (FINISHER_IDS.has(attackerId)) value += health <= 16 ? 4.2 : 1.2;
       if (enemyBoard.some((minion) => attackOf(minion) >= 5) && health > 12) {
         value -= 1.8;
@@ -1431,6 +1481,11 @@
       value += Math.min(7, minionValue(target) * 0.28);
     }
     if (targetAttack >= 5 && killsTarget) value += targetAttack * 0.42;
+    if (heroAttackAvailable && !hasGuard(target) && !pressure.emergency) {
+      value -= attack * (pressure.press ? 2.05 : 0.72);
+      if (pressure.press) value -= 5.5;
+      if (targetAttack <= 2 && !removesShield) value -= 3.2;
+    }
     return value;
   }
 
@@ -1912,7 +1967,7 @@
   }
 
   function tacticalScore(state, action, legalActions) {
-    if (action.type === "attack") return attackTactics(state, action);
+    if (action.type === "attack") return attackTactics(state, action, legalActions);
     if (action.type === "playCard") return playTactics(state, action, legalActions);
     if (action.type === COMMANDER_POWER_ACTION) {
       return commanderPowerTactics(state, action);
@@ -2029,6 +2084,14 @@
 
   function highConfidenceTacticalAction(state, action) {
     if (!action) return false;
+    if (action.type === "attack" && action.target && action.target.zone === "hero") {
+      const attacker = boardOf(state, AI_SIDE)[Number(action.attackerIndex)];
+      const pressure = commanderPressure(state);
+      return Boolean(
+        attacker &&
+        (pressure.lethal || (pressure.press && attackOf(attacker) >= 2)),
+      );
+    }
     if (action.type === "attack" && action.target && action.target.zone === "board") {
       const attacker = boardOf(state, AI_SIDE)[Number(action.attackerIndex)];
       const target = targetEntity(state, action.target);
@@ -2300,7 +2363,7 @@
       const bestScore = fresh[0].score;
       if (highConfidenceTacticalAction(state, fresh[0].action)) return fresh[0];
       const cautiousDecision = usesCautiousLine(state);
-      const scoreWindow = earlyTurn(state) ? 22 : 38;
+      const scoreWindow = earlyTurn(state) ? 14 : 24;
       const pool = fresh
         .filter((candidate) => candidate.score >= bestScore - scoreWindow)
         .slice(0, 4);
@@ -2309,15 +2372,15 @@
 
       const roll = hashText(`${salt}|variety|${signature}|${history.size}`) / 4294967296;
       if (pool.length === 3) {
-        const firstCut = cautiousDecision ? 0.2 : 0.25;
-        const secondCut = cautiousDecision ? 0.5 : 0.58;
+        const firstCut = cautiousDecision ? 0.5 : 0.7;
+        const secondCut = cautiousDecision ? 0.82 : 0.92;
         if (roll < firstCut) return pool[0];
         if (roll < secondCut) return pool[1];
         return pool[2];
       }
-      const firstCut = cautiousDecision ? 0.1 : 0.2;
-      const secondCut = cautiousDecision ? 0.25 : 0.45;
-      const thirdCut = cautiousDecision ? 0.5 : 0.72;
+      const firstCut = cautiousDecision ? 0.42 : 0.62;
+      const secondCut = cautiousDecision ? 0.7 : 0.86;
+      const thirdCut = cautiousDecision ? 0.9 : 0.96;
       if (roll < firstCut) return pool[0];
       if (roll < secondCut) return pool[1];
       if (roll < thirdCut) return pool[2];

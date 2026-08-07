@@ -230,6 +230,20 @@ function runGame(index, metrics, options) {
     assert(legal, `game ${index}: selected action must be legal`);
 
     if (side === "ai") recordChoice(metrics, state, action);
+    if (side === "ai" && action.type === "attack") {
+      if (action.target.zone === "hero") metrics.aiAttacks.hero += 1;
+      else metrics.aiAttacks.board += 1;
+      const faceWasLegal = legalActions.some(
+        (candidate) =>
+          candidate.type === "attack" &&
+          Number(candidate.attackerIndex) === Number(action.attackerIndex) &&
+          candidate.target.zone === "hero",
+      );
+      if (faceWasLegal) {
+        metrics.aiAttacks.faceOpen += 1;
+        if (action.target.zone === "hero") metrics.aiAttacks.faceChosenWhenOpen += 1;
+      }
+    }
     if (side === "ai" && action.type === "USE_COMMANDER_POWER") {
       metrics.aiCommanderPowers[action.commanderId] += 1;
     }
@@ -275,6 +289,7 @@ function createMetrics() {
     illegalActions: 0,
     aiCardsPlayed: new Set(),
     aiPlacements: { front: 0, rear: 0 },
+    aiAttacks: { hero: 0, board: 0, faceOpen: 0, faceChosenWhenOpen: 0 },
     byAiFaction: {},
     byPlayerFaction: {},
     byMatchup: {},
@@ -372,6 +387,12 @@ if (GAMES >= 100) {
     metrics.aiPlacements.front > 0 && metrics.aiPlacements.rear > 0,
     `AI must use both formation rows: ${JSON.stringify(metrics.aiPlacements)}`,
   );
+  const faceChoiceRate =
+    metrics.aiAttacks.faceChosenWhenOpen / Math.max(1, metrics.aiAttacks.faceOpen);
+  assert(
+    faceChoiceRate >= 0.25 && faceChoiceRate <= 0.85,
+    `AI commander pressure rate ${(faceChoiceRate * 100).toFixed(1)}% outside 25-85%`,
+  );
 }
 assert(averageTurns >= 8 && averageTurns <= 45, `average turns ${averageTurns} outside 8-45`);
 assert(aiWinRate >= 0.25 && aiWinRate <= 0.9, `AI win rate ${aiWinRate} outside 25-90%`);
@@ -462,6 +483,7 @@ console.log(
     `AI win ${(aiWinRate * 100).toFixed(1)}%`,
     `powers ${JSON.stringify(metrics.aiCommanderPowers)}`,
     `placements ${JSON.stringify(metrics.aiPlacements)}`,
+    `attacks ${JSON.stringify(metrics.aiAttacks)}`,
     `AI factions ${JSON.stringify(withRates(metrics.byAiFaction))}`,
     `player factions ${JSON.stringify(withRates(metrics.byPlayerFaction))}`,
     `matchups ${JSON.stringify(withRates(metrics.byMatchup))}`,

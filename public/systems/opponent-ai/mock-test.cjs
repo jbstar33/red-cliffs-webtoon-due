@@ -1166,6 +1166,91 @@ function choose(state, actions, seed) {
   );
 }
 
-console.log("opponent-ai tactical mocks: 125 deterministic scenario groups passed");
+{
+  const state = baseState();
+  state.heroes.player.health = 18;
+  state.heroes.ai.health = 24;
+  state.boards.ai = [minion("pressure-raider", 4, 6)];
+  state.boards.player = [minion("low-threat-wall", 1, 6)];
+  const face = {
+    type: "attack",
+    side: "ai",
+    attackerIndex: 0,
+    target: { zone: "hero", side: "player" },
+  };
+  const trade = {
+    type: "attack",
+    side: "ai",
+    attackerIndex: 0,
+    target: { zone: "board", side: "player", index: 0 },
+  };
+  const selected = choose(
+    state,
+    [face, trade, { type: "endTurn", side: "ai" }],
+    "commander-pressure-low-threat",
+  );
+  assert.strictEqual(selected.type, "attack");
+  assert.strictEqual(
+    selected.target.zone,
+    "hero",
+    "AI should pressure the commander instead of feeding damage into a low-threat body",
+  );
+}
+
+{
+  const state = baseState();
+  state.heroes.player.health = 18;
+  state.heroes.ai.health = 8;
+  state.boards.ai = [minion("defensive-trader", 4, 6)];
+  state.boards.player = [minion("lethal-threat", 7, 3)];
+  const face = {
+    type: "attack",
+    side: "ai",
+    attackerIndex: 0,
+    target: { zone: "hero", side: "player" },
+  };
+  const trade = {
+    type: "attack",
+    side: "ai",
+    attackerIndex: 0,
+    target: { zone: "board", side: "player", index: 0 },
+  };
+  const selected = choose(
+    state,
+    [face, trade, { type: "endTurn", side: "ai" }],
+    "commander-pressure-defend-lethal",
+  );
+  assert.strictEqual(selected.type, "attack");
+  assert.strictEqual(
+    selected.target.zone,
+    "board",
+    "AI must still remove an imminent lethal threat instead of blindly attacking face",
+  );
+}
+
+{
+  const state = baseState();
+  state.heroes.player.health = 7;
+  state.boards.ai = [
+    minion("lethal-chain-a", 3, 4),
+    minion("lethal-chain-b", 4, 4),
+  ];
+  const actions = state.boards.ai.map((_attacker, attackerIndex) => ({
+    type: "attack",
+    side: "ai",
+    attackerIndex,
+    target: { zone: "hero", side: "player" },
+  }));
+  actions.push({ type: "endTurn", side: "ai" });
+  const selected = choose(state, actions, "commander-pressure-lethal-chain");
+  assert.strictEqual(selected.type, "attack");
+  assert.strictEqual(
+    selected.target.zone,
+    "hero",
+    "combined ready damage should start the commander lethal sequence immediately",
+  );
+}
+
+console.log("opponent-ai tactical mocks: 128 deterministic scenario groups passed");
 require("./formation-depth-test.cjs");
 require("./commander-power-test.cjs");

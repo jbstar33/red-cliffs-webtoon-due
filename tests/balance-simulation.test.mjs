@@ -30,6 +30,11 @@ function chooseHumanHeuristic(state, side, legalActions) {
   );
   if (lethal) return lethal;
 
+  const commanderPressure = attacks.find(
+    (action) => action.target.zone === "hero",
+  );
+  if (commanderPressure) return commanderPressure;
+
   const favorableTrade = attacks.find((action) => {
     if (action.target.zone !== "board") return false;
     const attacker = state.boards[side][action.attackerIndex];
