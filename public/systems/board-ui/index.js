@@ -20,6 +20,11 @@
   const BOARD_RENDER_SCALE_MIN = 0.5;
   const BOARD_RENDER_SCALE_MAX = 2;
   const BOARD_AMBIENT_FRAME_MS = 100;
+  const MOBILE_LANDSCAPE_MIN_WIDTH = 600;
+  const MOBILE_LANDSCAPE_MAX_WIDTH = 1000;
+  const MOBILE_LANDSCAPE_MIN_HEIGHT = 320;
+  const MOBILE_LANDSCAPE_MAX_HEIGHT = 520;
+  const MOBILE_TOUCH_TARGET_CSS_PX = 44;
   const FORMATION_ROWS = Object.freeze(["front", "rear"]);
   const FORMATION_SLOT_COUNT = 3;
   const FORMATION_CARD_WIDTH = 112;
@@ -615,6 +620,43 @@
       .replace(/^(?:[·•|,;]\s*)+/, "")
       .replace(/(?:\s*[·•|,;])+$/, "")
       .trim();
+  }
+
+  function mobileLandscapeProfile(availableWidth, availableHeight) {
+    const width = Math.max(1, Number(availableWidth) || LOGICAL_WIDTH);
+    const height = Math.max(1, Number(availableHeight) || LOGICAL_HEIGHT);
+    const aspectRatio = width / height;
+    const stageScale = Math.min(width / LOGICAL_WIDTH, height / LOGICAL_HEIGHT);
+    const active = width >= MOBILE_LANDSCAPE_MIN_WIDTH
+      && width <= MOBILE_LANDSCAPE_MAX_WIDTH
+      && height >= MOBILE_LANDSCAPE_MIN_HEIGHT
+      && height <= MOBILE_LANDSCAPE_MAX_HEIGHT
+      && aspectRatio >= 1.55
+      && aspectRatio <= 2.45;
+    return Object.freeze({
+      active,
+      width,
+      height,
+      stageScale,
+      minimumLogicalTouch: active
+        ? clamp(MOBILE_TOUCH_TARGET_CSS_PX / Math.max(0.01, stageScale), 72, 96)
+        : 0,
+      inspectorWidth: active ? 404 : 318,
+      inspectorEdgeGap: active ? 10 : 12,
+    });
+  }
+
+  function minimumTouchTargetGeometry(x, y, width, height, profile) {
+    if (!profile || !profile.active) return { x, y, width, height };
+    const minimum = profile.minimumLogicalTouch;
+    const expandedWidth = Math.max(width, minimum);
+    const expandedHeight = Math.max(height, minimum);
+    return {
+      x: clamp(x - (expandedWidth - width) / 2, 0, LOGICAL_WIDTH - expandedWidth),
+      y: clamp(y - (expandedHeight - height) / 2, 0, LOGICAL_HEIGHT - expandedHeight),
+      width: expandedWidth,
+      height: expandedHeight,
+    };
   }
 
   function inspectorStrategyRows(card) {
@@ -8505,10 +8547,11 @@
     };
   }
 
-  function inspectionPanelGeometry(panelSide) {
-    const width = 318;
+  function inspectionPanelGeometry(panelSide, profile) {
+    const mobile = Boolean(profile && profile.active);
+    const width = mobile ? profile.inspectorWidth : 318;
     const height = 730;
-    const edgeGap = 12;
+    const edgeGap = mobile ? profile.inspectorEdgeGap : 12;
     return {
       x: panelSide === "right" ? LOGICAL_WIDTH - width - edgeGap : edgeGap,
       y: 19,
@@ -8517,7 +8560,13 @@
     };
   }
 
-  function turnButtonGeometry(panelSide) {
+  function turnButtonGeometry(panelSide, profile) {
+    if (profile && profile.active) {
+      if (panelSide === "right") {
+        return { x: 270, y: 323, width: 180, height: 92, docked: true };
+      }
+      return { x: 1130, y: 313, width: 182, height: 92, docked: false };
+    }
     if (panelSide === "right") {
       // A right-side inspector occupies the normal turn rail. Dock the action
       // into the 71px lane between minion rows while preserving a 60px target.
@@ -9090,6 +9139,7 @@
     let idleFrameTimer = 0;
     let renderScaleX = 1;
     let renderScaleY = 1;
+    let viewportProfile = mobileLandscapeProfile(LOGICAL_WIDTH, LOGICAL_HEIGHT);
     let thinking = false;
     let turnTimer = { active: false, seconds: 10, ratio: 1, urgent: false };
     let mutedHint = false;
@@ -9251,6 +9301,97 @@
           white-space: nowrap !important;
           border: 0 !important;
         }
+        .tk-board-mobile-inspector {
+          position: absolute;
+          z-index: 8;
+          display: none;
+          overflow: hidden;
+          color: #33271d;
+          pointer-events: auto;
+          touch-action: pan-y;
+          box-sizing: border-box;
+        }
+        .tk-board-mobile-inspector[data-open="true"] { display: block; }
+        .tk-board-mobile-inspector__summary {
+          position: absolute;
+          top: 25px;
+          right: 9px;
+          width: 104px;
+          min-height: 96px;
+          padding: 5px 4px;
+          box-sizing: border-box;
+          border-radius: 8px;
+          color: #fff0bd;
+          text-align: center;
+          text-shadow: 0 1px 2px #160b07, 0 0 4px #160b07;
+          background: linear-gradient(180deg, rgba(21,14,11,.45), rgba(21,14,11,.75));
+        }
+        .tk-board-mobile-inspector__name {
+          display: block;
+          font: 900 14px/1.25 ${SYSTEM_FONT};
+          overflow-wrap: anywhere;
+        }
+        .tk-board-mobile-inspector__stats {
+          display: block;
+          margin-top: 7px;
+          font: 800 12px/1.35 ${UI_FONT};
+          color: #ffe3a0;
+        }
+        .tk-board-mobile-inspector__body {
+          position: absolute;
+          left: 8px;
+          right: 8px;
+          top: 137px;
+          bottom: 8px;
+          overflow: auto;
+          overscroll-behavior: contain;
+          -webkit-overflow-scrolling: touch;
+          padding: 10px 11px 14px;
+          box-sizing: border-box;
+          border: 1px solid rgba(113,74,34,.7);
+          border-radius: 8px;
+          background: rgba(244,230,196,.985);
+          box-shadow: inset 0 0 0 2px rgba(255,249,225,.45);
+          font: 750 13px/1.48 ${UI_FONT};
+          user-select: text;
+          -webkit-user-select: text;
+          scrollbar-width: thin;
+        }
+        .tk-board-mobile-inspector__section + .tk-board-mobile-inspector__section {
+          margin-top: 9px;
+          padding-top: 8px;
+          border-top: 1px solid rgba(92,62,30,.24);
+        }
+        .tk-board-mobile-inspector__label {
+          display: block;
+          margin-bottom: 3px;
+          color: #74471c;
+          font: 900 11px/1.2 ${SYSTEM_FONT};
+          letter-spacing: .03em;
+        }
+        .tk-board-mobile-inspector__keyword {
+          display: inline-block;
+          margin: 2px 5px 2px 0;
+          padding: 2px 6px;
+          border-radius: 999px;
+          background: #315b52;
+          color: #ecffe9;
+          font-weight: 900;
+        }
+        .tk-board-mobile-inspector__close {
+          position: absolute;
+          z-index: 2;
+          top: 4px;
+          right: 4px;
+          width: 44px;
+          height: 44px;
+          padding: 0;
+          border: 1px solid #e5c06a;
+          border-radius: 50%;
+          color: #fff3c6;
+          background: rgba(25,16,12,.94);
+          font: 900 23px/1 ${UI_FONT};
+        }
       `;
       documentRef.head.appendChild(style);
     }
@@ -9261,11 +9402,161 @@
     liveRegion.setAttribute("aria-atomic", "true");
     root.appendChild(liveRegion);
 
+    const mobileInspector = documentRef.createElement("section");
+    mobileInspector.className = "tk-board-mobile-inspector";
+    mobileInspector.setAttribute("data-open", "false");
+    mobileInspector.setAttribute("aria-hidden", "true");
+    mobileInspector.setAttribute("aria-label", "카드 상세 설명");
+    const mobileInspectorSummary = documentRef.createElement("div");
+    mobileInspectorSummary.className = "tk-board-mobile-inspector__summary";
+    const mobileInspectorName = documentRef.createElement("span");
+    mobileInspectorName.className = "tk-board-mobile-inspector__name";
+    const mobileInspectorStats = documentRef.createElement("span");
+    mobileInspectorStats.className = "tk-board-mobile-inspector__stats";
+    mobileInspectorSummary.appendChild(mobileInspectorName);
+    mobileInspectorSummary.appendChild(mobileInspectorStats);
+    const mobileInspectorBody = documentRef.createElement("div");
+    mobileInspectorBody.className = "tk-board-mobile-inspector__body";
+    mobileInspectorBody.tabIndex = 0;
+    const mobileInspectorClose = documentRef.createElement("button");
+    mobileInspectorClose.className = "tk-board-mobile-inspector__close";
+    mobileInspectorClose.type = "button";
+    mobileInspectorClose.setAttribute("aria-label", "카드 상세 닫기");
+    mobileInspectorClose.textContent = "×";
+    mobileInspector.appendChild(mobileInspectorSummary);
+    mobileInspector.appendChild(mobileInspectorBody);
+    mobileInspector.appendChild(mobileInspectorClose);
+    root.appendChild(mobileInspector);
+
+    function clearMobileInspectorBody() {
+      while (mobileInspectorBody.firstChild) {
+        mobileInspectorBody.removeChild(mobileInspectorBody.firstChild);
+      }
+    }
+
+    function appendMobileInspectorSection(label, content, className) {
+      if (!content) return;
+      const section = documentRef.createElement("div");
+      section.className = `tk-board-mobile-inspector__section${className ? ` ${className}` : ""}`;
+      const heading = documentRef.createElement("span");
+      heading.className = "tk-board-mobile-inspector__label";
+      heading.textContent = label;
+      const copy = documentRef.createElement("div");
+      copy.textContent = content;
+      section.appendChild(heading);
+      section.appendChild(copy);
+      mobileInspectorBody.appendChild(section);
+    }
+
+    function populateMobileInspector(card) {
+      if (!card || !inspection || !viewportProfile.active) {
+        mobileInspector.setAttribute("data-open", "false");
+        mobileInspector.setAttribute("aria-hidden", "true");
+        return;
+      }
+      const keywordDetails = resolveCardKeywordDetails(card, runtimeKeywordDefinitions);
+      const content = inspectorContentModel(card, keywordDetails);
+      const cardKey = inspectionInstanceId(card) || String(getCardValue(card, "id", ""));
+      const changedCard = mobileInspector.getAttribute("data-card-key") !== cardKey;
+      mobileInspector.setAttribute("data-card-key", cardKey);
+      mobileInspectorName.textContent = getCardValue(card, "name", "이름 없는 장수");
+      mobileInspectorStats.textContent = [
+        `비용 ${getCardValue(card, "currentCost", getCardValue(card, "cost", 0))}`,
+        `공격 ${getCardValue(card, "currentAttack", getCardValue(card, "attack", 0))}`,
+        `체력 ${getCardValue(card, "currentHealth", getCardValue(card, "health", 0))}`,
+      ].join(" · ");
+      clearMobileInspectorBody();
+      appendMobileInspectorSection(
+        "능력",
+        content.abilityText || "별도의 발동 능력이 없습니다.",
+      );
+      if (content.keywordRows.length) {
+        const section = documentRef.createElement("div");
+        section.className = "tk-board-mobile-inspector__section";
+        const heading = documentRef.createElement("span");
+        heading.className = "tk-board-mobile-inspector__label";
+        heading.textContent = "핵심 키워드";
+        section.appendChild(heading);
+        content.keywordRows.forEach((entry) => {
+          const row = documentRef.createElement("div");
+          const keyword = documentRef.createElement("span");
+          keyword.className = "tk-board-mobile-inspector__keyword";
+          keyword.textContent = entry.label || entry.name;
+          const definition = documentRef.createElement("span");
+          definition.textContent = entry.definition;
+          row.appendChild(keyword);
+          row.appendChild(definition);
+          section.appendChild(row);
+        });
+        mobileInspectorBody.appendChild(section);
+      }
+      appendMobileInspectorSection(
+        "배치와 연계",
+        content.strategyRows.map((entry) => `${entry.label}: ${entry.text}`).join(" · "),
+      );
+      appendMobileInspectorSection(
+        "현재 상태",
+        content.statusRows.map((entry) => `${entry.label}: ${entry.text}`).join(" · "),
+      );
+      mobileInspector.setAttribute("data-open", "true");
+      mobileInspector.setAttribute("aria-hidden", "false");
+      if (changedCard) mobileInspectorBody.scrollTop = 0;
+    }
+
+    function positionMobileInspector(rootRect, metrics) {
+      if (!viewportProfile.active || !inspection) {
+        mobileInspector.setAttribute("data-open", "false");
+        mobileInspector.setAttribute("aria-hidden", "true");
+        return;
+      }
+      const panel = inspectionPanelGeometry(inspection.panelSide, viewportProfile);
+      const scaleX = metrics.cssWidth / LOGICAL_WIDTH;
+      const scaleY = metrics.cssHeight / LOGICAL_HEIGHT;
+      const canvasLeft = (rootRect.width - metrics.cssWidth) / 2;
+      const canvasTop = (rootRect.height - metrics.cssHeight) / 2;
+      mobileInspector.style.left = `${canvasLeft + panel.x * scaleX}px`;
+      mobileInspector.style.top = `${canvasTop + panel.y * scaleY}px`;
+      mobileInspector.style.width = `${panel.width * scaleX}px`;
+      mobileInspector.style.height = `${panel.height * scaleY}px`;
+      mobileInspectorSummary.style.left = `${168 * scaleX}px`;
+      mobileInspectorSummary.style.width = `${Math.max(96, (panel.width - 180) * scaleX)}px`;
+      mobileInspectorBody.style.top = `${282 * scaleY}px`;
+      populateMobileInspector(inspection.card);
+    }
+
+    function refreshMobileInspectorPosition() {
+      const rootRect = root.getBoundingClientRect();
+      positionMobileInspector(
+        rootRect,
+        boardRenderMetrics(
+          Math.max(1, rootRect.width || LOGICAL_WIDTH),
+          Math.max(1, rootRect.height || LOGICAL_HEIGHT),
+          global.devicePixelRatio || 1,
+        ),
+      );
+    }
+
+    function stopMobileInspectorPointer(event) {
+      event.stopPropagation();
+    }
+
+    function closeMobileInspector(event) {
+      event.preventDefault();
+      event.stopPropagation();
+      closeInspection(true);
+      canvas.focus({ preventScroll: true });
+    }
+
+    mobileInspector.addEventListener("pointerdown", stopMobileInspectorPointer);
+    mobileInspectorClose.addEventListener("click", closeMobileInspector);
+
     function resizeCanvas() {
       if (destroyed) return;
       const rootRect = root.getBoundingClientRect();
       const availableWidth = Math.max(1, rootRect.width || LOGICAL_WIDTH);
       const availableHeight = Math.max(1, rootRect.height || LOGICAL_HEIGHT);
+      viewportProfile = mobileLandscapeProfile(availableWidth, availableHeight);
+      root.setAttribute("data-mobile-landscape", viewportProfile.active ? "true" : "false");
       const metrics = boardRenderMetrics(
         availableWidth,
         availableHeight,
@@ -9282,6 +9573,7 @@
         canvas.width = metrics.backingWidth;
         canvas.height = metrics.backingHeight;
       }
+      positionMobileInspector(rootRect, metrics);
       invalidateBoardFrame();
     }
 
@@ -9290,6 +9582,9 @@
       : null;
     if (resizeObserver) resizeObserver.observe(root);
     if (global.addEventListener) global.addEventListener("resize", resizeCanvas);
+    if (global.visualViewport && global.visualViewport.addEventListener) {
+      global.visualViewport.addEventListener("resize", resizeCanvas);
+    }
     resizeCanvas();
 
     function refreshStateSnapshot() {
@@ -9334,12 +9629,25 @@
     }
 
     function addHit(type, x, y, width, height, data, angle) {
+      const touchCritical = [
+        "commander-power",
+        "formation-slot",
+        "board-card",
+        "inspection-close",
+        "end-turn",
+        "mute",
+        "concede",
+        "restart",
+      ].includes(type);
+      const geometry = touchCritical
+        ? minimumTouchTargetGeometry(x, y, width, height, viewportProfile)
+        : { x, y, width, height };
       const hit = {
         type,
-        x,
-        y,
-        width,
-        height,
+        x: geometry.x,
+        y: geometry.y,
+        width: geometry.width,
+        height: geometry.height,
         angle: angle || 0,
         data: data || {},
       };
@@ -9480,6 +9788,7 @@
       const cardId = inspectionInstanceId(presentedCard) || String(getCardValue(presentedCard, "id", ""));
       root.setAttribute("data-inspection-card-id", cardId);
       canvas.setAttribute("aria-description", inspectionAnnouncement(presentedCard));
+      populateMobileInspector(presentedCard);
     }
 
     function locateInspectionCard(state) {
@@ -9570,6 +9879,7 @@
         openedAt,
       };
       applyInspectionCard(card, inspection.source);
+      refreshMobileInspectorPosition();
       liveRegion.textContent = inspectionAnnouncement(card);
       invalidateBoardFrame();
     }
@@ -9589,6 +9899,8 @@
       cancelSelection();
       root.removeAttribute("data-inspection-card-id");
       canvas.removeAttribute("aria-description");
+      mobileInspector.setAttribute("data-open", "false");
+      mobileInspector.setAttribute("aria-hidden", "true");
       if (announce) liveRegion.textContent = "카드 상세를 닫았습니다.";
       invalidateBoardFrame();
     }
@@ -11768,7 +12080,7 @@
       const panelSide = inspection && inspection.panelSide
         || closingInspection && closingInspection.panelSide
         || hoverPanelSide;
-      const geometry = turnButtonGeometry(panelSide);
+      const geometry = turnButtonGeometry(panelSide, viewportProfile);
       const { x, y, width, height } = geometry;
       const presentationWait = state.phase === "playing"
         && state.turn === "player"
@@ -11851,10 +12163,15 @@
     }
 
     function drawUtilityButtons() {
-      const buttons = [
-        { type: "mute", x: 1188, label: mutedHint ? "음소거" : "소리", glyph: mutedHint ? "×" : "♪" },
-        { type: "concede", x: 1261, label: "항복", glyph: "旗" },
-      ];
+      const buttons = viewportProfile.active
+        ? [
+          { type: "mute", x: 1170, label: mutedHint ? "음소거" : "소리", glyph: mutedHint ? "×" : "♪" },
+          { type: "concede", x: 1280, label: "항복", glyph: "旗" },
+        ]
+        : [
+          { type: "mute", x: 1188, label: mutedHint ? "음소거" : "소리", glyph: mutedHint ? "×" : "♪" },
+          { type: "concede", x: 1261, label: "항복", glyph: "旗" },
+        ];
       buttons.forEach((button) => {
         const y = 43;
         ctx.save();
@@ -12140,7 +12457,7 @@
         return;
       }
       const interactivePanel = Boolean(pinned && inspection && !transition.closing);
-      const panel = inspectionPanelGeometry(panelSide);
+      const panel = inspectionPanelGeometry(panelSide, viewportProfile);
       const panelWidth = panel.width;
       const panelHeight = panel.height;
       const panelX = panel.x;
@@ -12968,6 +13285,9 @@
       if (idleFrameTimer) global.clearTimeout(idleFrameTimer);
       if (resizeObserver) resizeObserver.disconnect();
       if (global.removeEventListener) global.removeEventListener("resize", resizeCanvas);
+      if (global.visualViewport && global.visualViewport.removeEventListener) {
+        global.visualViewport.removeEventListener("resize", resizeCanvas);
+      }
       if (reducedMotionQuery.removeEventListener) {
         reducedMotionQuery.removeEventListener("change", invalidateBoardFrame);
       }
@@ -12979,6 +13299,9 @@
       canvas.classList.remove("tk-board-canvas");
       root.classList.remove("tk-board-root");
       if (liveRegion.parentNode) liveRegion.parentNode.removeChild(liveRegion);
+      mobileInspector.removeEventListener("pointerdown", stopMobileInspectorPointer);
+      mobileInspectorClose.removeEventListener("click", closeMobileInspector);
+      if (mobileInspector.parentNode) mobileInspector.parentNode.removeChild(mobileInspector);
       positions.clear();
       handPoseStates.clear();
       visualPresses.clear();
@@ -13138,6 +13461,8 @@
       eventEntityName,
       namedLifecycleMessage,
       boardRenderMetrics,
+      mobileLandscapeProfile,
+      minimumTouchTargetGeometry,
       boardFrameDelay,
       shieldVisualState,
       boardSlotGeometry,

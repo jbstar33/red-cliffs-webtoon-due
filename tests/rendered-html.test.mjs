@@ -2,6 +2,10 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
+// Keep the dedicated mobile contract in the default `npm test` entrypoint,
+// which invokes this file explicitly rather than discovering tests by glob.
+await import("./mobile-landscape.test.mjs");
+
 async function render() {
   const workerUrl = new URL("../dist/server/index.js", import.meta.url);
   workerUrl.searchParams.set("test", `${process.pid}-${Date.now()}`);

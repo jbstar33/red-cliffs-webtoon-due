@@ -469,6 +469,18 @@ export function GameShell() {
           <b aria-hidden="true">↻</b> 더 넓은 전장을 위해 기기를 가로로 돌려주세요
         </span>
       </aside>
+      <details id="mobile-game-help">
+        <summary aria-label="모바일 조작 도움말 열기">
+          <span aria-hidden="true">?</span>
+        </summary>
+        <div>
+          <strong>전장 조작</strong>
+          <span>카드를 눌러 상세 확인</span>
+          <span>전장으로 끌어 출전</span>
+          <span>아군 선택 후 적을 눌러 공격</span>
+          <span>지휘관 문양을 눌러 고유 능력 사용</span>
+        </div>
+      </details>
     </main>
   );
 }

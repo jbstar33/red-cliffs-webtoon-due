@@ -1354,7 +1354,7 @@ test("keeps the 318px inspector outside five-card board slots at target viewport
     assert.ok((leftPanel.x + leftPanel.width) * scale < firstSlot.x * scale);
     assert.ok(rightPanel.x * scale > (lastSlot.x + lastSlot.width) * scale);
   }
-  assert.match(source, /const panel = inspectionPanelGeometry\(panelSide\)/);
+  assert.match(source, /const panel = inspectionPanelGeometry\(panelSide, viewportProfile\)/);
 });
 
 test("docks the turn button clear of a right inspector without shrinking its touch target", () => {
@@ -1383,7 +1383,7 @@ test("docks the turn button clear of a right inspector without shrinking its tou
       );
     }
   }
-  assert.match(source, /const geometry = turnButtonGeometry\(panelSide\)/);
+  assert.match(source, /const geometry = turnButtonGeometry\(panelSide, viewportProfile\)/);
   assert.match(source, /addHit\("end-turn", x, y, width, height/);
 });
 
@@ -1718,7 +1718,7 @@ test("makes inspector art dominant without changing the nonblocking panel footpr
   assert.match(source, /configCard\.preview \? 0\.52 : 0\.4/);
   assert.match(source, /const largeCardWidth = 158/);
   assert.match(source, /const largeCardHeight = 224/);
-  assert.match(source, /const width = 318;[\s\S]{0,80}const height = 730/);
+  assert.match(source, /const width = mobile \? profile\.inspectorWidth : 318;[\s\S]{0,80}const height = 730/);
 });
 
 test("splits noses, philtrums, mouths, and moustache attachments into six construction families", () => {
@@ -2208,6 +2208,78 @@ test("sizes the backing store from visible stage pixels instead of a fixed DPR2 
   assert.equal(hooks.timing.boardRenderScaleMax, 2);
   assert.match(source, /ctx\.setTransform\(renderScaleX, 0, 0, renderScaleY, 0, 0\)/);
   assert.doesNotMatch(source, /Math\.round\(LOGICAL_WIDTH \* dpr\)/);
+});
+
+test("mobile landscape profiles keep touch controls and inspectors clear at target phone sizes", () => {
+  const sandbox = { globalThis: {} };
+  vm.runInNewContext(source, sandbox, { filename: "board-ui/index.js" });
+  const boardModule = sandbox.globalThis.TK.modules.boardUI;
+  const hooks = boardModule.testHooks;
+  const overlaps = (a, b) => (
+    Math.max(0, Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x)) > 0
+    && Math.max(0, Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y)) > 0
+  );
+  for (const [width, height] of [[667, 375], [740, 360], [844, 390], [932, 430]]) {
+    const profile = hooks.mobileLandscapeProfile(width, height);
+    const scale = Math.min(width / boardModule.LOGICAL_WIDTH, height / boardModule.LOGICAL_HEIGHT);
+    assert.equal(profile.active, true, `${width}x${height} should use the phone layout`);
+    assert.ok(profile.minimumLogicalTouch * scale >= 43.9);
+    const expanded = hooks.minimumTouchTargetGeometry(0, 0, 42, 42, profile);
+    assert.ok(expanded.width * scale >= 43.9);
+    assert.ok(expanded.height * scale >= 43.9);
+
+    const leftPanel = hooks.inspectionPanelGeometry("left", profile);
+    const rightPanel = hooks.inspectionPanelGeometry("right", profile);
+    const slots = ["ai", "player"].flatMap((side) => (
+      ["front", "rear"].flatMap((row) => (
+        [0, 1, 2].map((slot) => hooks.formationSlotGeometry(side, row, slot))
+      ))
+    ));
+    slots.forEach((slot) => {
+      assert.equal(overlaps(leftPanel, slot), false);
+      assert.equal(overlaps(rightPanel, slot), false);
+      const slotHit = hooks.minimumTouchTargetGeometry(
+        slot.x,
+        slot.y,
+        slot.width,
+        slot.height,
+        profile,
+      );
+      assert.ok(slotHit.width * scale >= 43.9);
+      assert.ok(slotHit.height * scale >= 43.9);
+    });
+
+    const leftDock = hooks.turnButtonGeometry("right", profile);
+    const rightDock = hooks.turnButtonGeometry("left", profile);
+    for (const [turnButton, activePanel] of [[leftDock, rightPanel], [rightDock, leftPanel]]) {
+      const turnHit = hooks.minimumTouchTargetGeometry(
+        turnButton.x,
+        turnButton.y,
+        turnButton.width,
+        turnButton.height,
+        profile,
+      );
+      assert.ok(turnHit.width * scale >= 43.9);
+      assert.ok(turnHit.height * scale >= 43.9);
+      assert.equal(overlaps(turnButton, activePanel), false);
+      slots.forEach((slot) => assert.equal(overlaps(turnButton, slot), false));
+    }
+  }
+  assert.equal(hooks.mobileLandscapeProfile(1365, 768).active, false);
+  assert.equal(hooks.mobileLandscapeProfile(390, 844).active, false);
+});
+
+test("mobile inspection uses CSS-sized readable copy, scroll containment, and visual viewport resize", () => {
+  assert.match(source, /className = "tk-board-mobile-inspector"/);
+  assert.match(source, /font: 750 13px\/1\.48/);
+  assert.match(source, /width: 44px;[\s\S]{0,80}height: 44px;/);
+  assert.match(source, /touch-action: pan-y/);
+  assert.match(source, /overscroll-behavior: contain/);
+  assert.match(source, /appendMobileInspectorSection\([\s\S]{0,100}"능력"/);
+  assert.match(source, /heading\.textContent = "핵심 키워드"/);
+  assert.match(source, /appendMobileInspectorSection\([\s\S]{0,40}"배치와 연계"/);
+  assert.match(source, /global\.visualViewport\.addEventListener\("resize", resizeCanvas\)/);
+  assert.match(source, /global\.visualViewport\.removeEventListener\("resize", resizeCanvas\)/);
 });
 
 test("sleeps reduced-motion idle boards and throttles ambient-only redraws", () => {
