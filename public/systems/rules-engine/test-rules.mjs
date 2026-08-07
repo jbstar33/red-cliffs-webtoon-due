@@ -1819,6 +1819,7 @@ function testCommanderSelectionCaoCaoAndActionContract() {
     faction: "wei",
     powerId: "caocao_recovery",
     powerCost: 1,
+    powerAmount: 2,
     powerUsedThisTurn: false,
     reflectCharges: 0,
   });
@@ -1830,6 +1831,7 @@ function testCommanderSelectionCaoCaoAndActionContract() {
     faction: "wei",
     powerId: "caocao_recovery",
     powerCost: 1,
+    powerAmount: 2,
     active: true,
   });
   assert.deepEqual(
@@ -1882,9 +1884,9 @@ function testCommanderSelectionCaoCaoAndActionContract() {
   });
   const healingResult = game.applyAction(healingAction);
   assert.equal(healingResult.ok, true);
-  assert.equal(healingResult.result.actualHealing, 1);
+  assert.equal(healingResult.result.actualHealing, 2);
   state = game.getState();
-  assert.equal(state.heroes.player.health, 28);
+  assert.equal(state.heroes.player.health, 29);
   assert.equal(state.heroes.player.mana, 1);
   assert.equal(state.commanders.player.powerUsedThisTurn, true);
   assert.equal(
@@ -1901,7 +1903,7 @@ function testCommanderSelectionCaoCaoAndActionContract() {
   assert.equal(powerEvent.detail.powerId, "caocao_recovery");
   assert.equal(powerEvent.detail.cost, 1);
   assert.deepEqual(powerEvent.detail.target, { zone: "hero", side: "player" });
-  assert.equal(powerEvent.detail.result.actualHealing, 1);
+  assert.equal(powerEvent.detail.result.actualHealing, 2);
   assert.equal(powerEvent.detail.manaRemaining, 1);
 
   const aliasGame = createGame({

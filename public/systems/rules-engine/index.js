@@ -16,6 +16,7 @@
       faction: "wei",
       powerId: "caocao_recovery",
       powerCost: 1,
+      powerAmount: 2,
       active: true,
     }),
     liubei: Object.freeze({
@@ -216,6 +217,7 @@
           faction: definition?.faction || null,
           powerId: definition?.powerId || null,
           powerCost: definition?.powerCost ?? null,
+          powerAmount: definition?.powerAmount ?? null,
           powerUsedThisTurn: false,
           reflectCharges: definition?.id === "liubei" ? 2 : 0,
         };
@@ -2610,8 +2612,12 @@
 
         if (commander.id === "caocao") {
           const healthBefore = hero.health;
-          const actualHealing = Math.max(0, Math.min(1, hero.maxHealth - hero.health));
-          hero.health = clamp(hero.health + 1, 0, hero.maxHealth);
+          const healingAmount = Math.max(0, numberOr(definition.powerAmount, 0));
+          const actualHealing = Math.max(
+            0,
+            Math.min(healingAmount, hero.maxHealth - hero.health),
+          );
+          hero.health = clamp(hero.health + healingAmount, 0, hero.maxHealth);
           resolvedTarget = { zone: "hero", side };
           result.actualHealing = actualHealing;
           result.healthBefore = healthBefore;

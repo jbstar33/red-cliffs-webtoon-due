@@ -62,7 +62,7 @@
       mark: "魏",
       powerName: "패왕의 휴식",
       powerCost: 1,
-      powerText: "내 지휘관의 체력을 1 회복",
+      powerText: "내 지휘관의 체력을 2 회복",
       active: true,
       palette: Object.freeze({
         dark: "#09111d", low: "#1d304e", mid: "#42618c", high: "#9db7d4",

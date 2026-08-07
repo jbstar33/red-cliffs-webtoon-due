@@ -40,6 +40,7 @@ test("server-renders the complete card-table shell", async () => {
   assert.match(html, /data-commander="sunquan"/);
   assert.match(html, /data-commander="nomad"/);
   assert.match(html, /패업의 숨결/);
+  assert.match(html, /체력을 2 회복/);
   assert.match(html, /도원의 맹세/);
   assert.match(html, /수공/);
   assert.match(html, /족쇄 명령/);

@@ -107,6 +107,7 @@
       commander.commanderId,
       commander.powerId,
       commander.powerCost,
+      commander.powerAmount,
       commander.powerUsed,
       commander.powerUsedThisTurn,
       commander.used,
@@ -1273,7 +1274,11 @@
         0,
         finite(aiHero.maxHealth, 30) - finite(aiHero.health, 0),
       );
-      const amount = commanderPowerAmount(action, 1);
+      const commander = (state.commanders && state.commanders.ai) || {};
+      const amount = commanderPowerAmount(
+        action,
+        Math.max(0, finite(commander.powerAmount, 1)),
+      );
       const actual = Math.min(missing, amount);
       const threat = futureBoardDamage(state, PLAYER_SIDE);
       let value = actual * 1.8;

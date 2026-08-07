@@ -27,7 +27,7 @@ const commanders = [
     title: "난세의 간웅",
     cost: "1",
     power: "패업의 숨결",
-    rules: "내 지휘관의 체력을 1 회복합니다.",
+    rules: "내 지휘관의 체력을 2 회복합니다.",
     glyph: "魏",
   },
   {

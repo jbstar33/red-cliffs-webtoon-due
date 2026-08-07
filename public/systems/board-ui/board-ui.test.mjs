@@ -1021,6 +1021,7 @@ test("presents all commander powers with clear costs, readiness, targeting, and 
     assert.equal(commander.powerCost, powerCost);
     assert.equal(commander.active, active);
     assert.ok(commander.powerText.length >= 12);
+    if (id === "caocao") assert.match(commander.powerText, /체력을 2 회복/);
   });
 
   const stateFor = (id, mana, patch = {}) => ({
