@@ -129,17 +129,18 @@
   });
 
   const KEYWORD_DEFINITIONS = Object.freeze({
-    돌진: "출전한 턴에도 즉시 공격할 수 있습니다.",
+    돌진: "출전 즉시 공격할 수 있습니다.",
     수호: "전열 배치 시 전열·후열·지휘관을 모두 보호하고, 후열 배치 시 후열·지휘관만 보호합니다.",
     방패: "이 장수가 받는 다음 한 번의 피해를 막습니다.",
     출전: "이 카드를 손에서 낼 때 한 번 발동합니다.",
     유언: "이 장수가 쓰러질 때 한 번 발동합니다.",
-    돌파: "상대 전열이 남아 있어도 후열 장수를 공격할 수 있습니다. 수호는 무시하지 못합니다.",
-    의형제: "다른 촉 아군과 함께 있을 때 자신과 체력이 가장 낮은 촉 아군의 체력이 1 증가합니다.",
+    저격: "전열·후열 경로를 무시해 지휘관까지 공격합니다. 수호는 적용됩니다.",
+    돌파: "같은 열 전열을 무시하고 후열을 공격합니다. 지휘관·수호는 적용됩니다.",
+    의형제: "촉 아군 연계 시 자신과 체력이 가장 낮은 촉 아군의 체력이 1 증가합니다.",
     군략: "다른 위 아군과 함께 있을 때 손의 최고 비용 카드 하나의 비용이 1 감소합니다.",
     연화: "다른 오 아군과 함께 있을 때 적 장수 하나에게 화상을 1 부여합니다.",
-    약탈: "다른 이민족 아군과 함께 있을 때 적 장수 하나의 다음 공격을 봉쇄합니다.",
-    천하무쌍: "매 턴 두 번 공격할 수 있지만 두 번째 공격 뒤 턴 종료에 피해를 2 받습니다.",
+    약탈: "남만·군웅 아군 연계 시 적 장수 하나의 다음 공격을 봉쇄합니다.",
+    천하무쌍: "턴마다 두 번 공격하며 두 번째 공격 뒤 반동 피해 2를 받습니다.",
   });
 
   const UX_CODE_MESSAGES = Object.freeze({
@@ -156,6 +157,8 @@
     attacker_not_ready: "이 장수는 아직 공격할 수 없습니다.",
     invalid_attack_target: "수호 장수를 먼저 공격해야 합니다.",
     guard_blocked: "수호 장수를 먼저 공격해야 합니다.",
+    column_path_blocked: "같은 경로의 전열 장수를 먼저 공격해야 합니다.",
+    commander_paths_blocked: "후열 세 경로가 모두 막혀 지휘관을 공격할 수 없습니다.",
     target_missing: "대상을 다시 선택해 주세요.",
     target_required: "능력을 적용할 적 장수를 선택해 주세요.",
     target_already_locked: "이미 다음 공격이 봉쇄된 장수입니다.",
@@ -701,7 +704,7 @@
     if (getCardValue(card, "emptyFort", false)) rows.push({ label: "공성계", text: "지휘관 공격 피해 1회 무효" });
     if (getCardValue(card, "secondAttackPenalty", false)) rows.push({ label: "반동", text: "턴 종료에 자신에게 피해 2" });
     if (getCardValue(card, "formationProtected", false)) {
-      rows.unshift({ label: "후열 보호", text: "전열이 보호 중 — 저격·돌파 외에는 공격 불가" });
+      rows.unshift({ label: "경로 보호", text: "같은 열 전열이 보호 중 — 저격·돌파 외에는 공격 불가" });
     }
     return rows;
   }
@@ -9461,8 +9464,14 @@
       if (source && source.type === "board-card" && source.side === "ai" && state) {
         const layout = formationBoardLayout(state.boards && state.boards.ai || []);
         const placement = layout[source.index];
-        const frontPresent = layout.some((candidate) => candidate && candidate.row === "front");
-        if (placement && placement.row === "rear" && frontPresent) {
+        const sameLaneFrontPresent = layout.some(
+          (candidate) =>
+            candidate &&
+            candidate.row === "front" &&
+            placement &&
+            candidate.slot === placement.slot,
+        );
+        if (placement && placement.row === "rear" && sameLaneFrontPresent) {
           presentedCard = { ...card, formationProtected: true };
         }
       }
@@ -9612,11 +9621,36 @@
       if (!targetPlacement || targetPlacement.row !== "rear") return false;
       const enemyBoard = state.boards && state.boards.ai || [];
       const layout = formationBoardLayout(enemyBoard);
-      if (!layout.some((placement) => placement && placement.row === "front")) return false;
+      if (
+        !layout.some(
+          (placement) =>
+            placement &&
+            placement.row === "front" &&
+            placement.slot === targetPlacement.slot,
+        )
+      ) {
+        return false;
+      }
       const attacker = state.boards && state.boards.player
         ? state.boards.player[selectedItem.index]
         : null;
       return !cardHasKeyword(attacker, "저격") && !cardHasKeyword(attacker, "돌파");
+    }
+
+    function isCommanderPathBlockedAttackTarget(target, selectedItem, state) {
+      if (!target || target.zone !== "hero" || target.side !== "ai") return false;
+      if (!selectedItem || selectedItem.kind !== "attacker") return false;
+      const attacker = state.boards && state.boards.player
+        ? state.boards.player[selectedItem.index]
+        : null;
+      if (cardHasKeyword(attacker, "저격")) return false;
+      const layout = formationBoardLayout(state.boards && state.boards.ai || []);
+      const occupiedRearSlots = new Set(
+        layout
+          .filter((placement) => placement && placement.row === "rear")
+          .map((placement) => placement.slot),
+      );
+      return occupiedRearSlots.size === FORMATION_SLOT_COUNT;
     }
 
     function isTargetAllowed(target, selectedItem, state) {
@@ -9635,11 +9669,27 @@
       }
       if (selectedItem.kind === "attacker") {
         if (target.side !== "ai") return false;
-        const guards = (state.boards && state.boards.ai || []).filter((minion) => minion.guard);
-        if (guards.length > 0) {
-          if (target.zone !== "board") return false;
-          return Boolean((state.boards.ai[target.index] || {}).guard);
+        const enemyBoard = state.boards && state.boards.ai || [];
+        const targetMinion = target.zone === "board" ? enemyBoard[target.index] : null;
+        const frontGuards = enemyBoard.filter(
+          (minion) => minion.guard && getCardValue(minion, "row", "front") !== "rear",
+        );
+        if (frontGuards.length > 0) {
+          return Boolean(
+            target.zone === "board" &&
+            targetMinion?.guard &&
+            getCardValue(targetMinion, "row", "front") !== "rear",
+          );
         }
+        const rearGuards = enemyBoard.filter(
+          (minion) => minion.guard && getCardValue(minion, "row", "front") === "rear",
+        );
+        if (rearGuards.length > 0) {
+          if (target.zone !== "board") return false;
+          if (getCardValue(targetMinion, "row", "front") === "front") return true;
+          return Boolean(targetMinion?.guard);
+        }
+        if (isCommanderPathBlockedAttackTarget(target, selectedItem, state)) return false;
         if (isRearProtectedAttackTarget(target, selectedItem, state)) return false;
         return true;
       }
@@ -9685,20 +9735,32 @@
     function isGuardBlockedAttackTarget(target, selectedItem, state) {
       if (!target || !selectedItem || selectedItem.kind !== "attacker" || !state) return false;
       if (target.side !== "ai") return false;
-      const guards = (state.boards && state.boards.ai || []).filter((minion) => minion.guard);
-      if (guards.length === 0) return false;
-      if (target.zone === "hero") {
-        return true;
-      }
+      const enemyBoard = state.boards && state.boards.ai || [];
+      const frontGuards = enemyBoard.filter(
+        (minion) => minion.guard && getCardValue(minion, "row", "front") !== "rear",
+      );
+      const rearGuards = enemyBoard.filter(
+        (minion) => minion.guard && getCardValue(minion, "row", "front") === "rear",
+      );
+      if (!frontGuards.length && !rearGuards.length) return false;
+      if (target.zone === "hero") return true;
       if (target.zone !== "board") return false;
-      return !Boolean((state.boards.ai[target.index] || {}).guard);
+      const targetMinion = enemyBoard[target.index];
+      if (frontGuards.length) {
+        return !Boolean(
+          targetMinion?.guard && getCardValue(targetMinion, "row", "front") !== "rear",
+        );
+      }
+      if (getCardValue(targetMinion, "row", "front") === "front") return false;
+      return !Boolean(targetMinion?.guard);
     }
 
     function isFormationBlockedAttackTarget(target, selectedItem, state) {
       if (!target || !selectedItem || selectedItem.kind !== "attacker" || !state) return false;
       const guards = (state.boards && state.boards.ai || []).filter((minion) => minion.guard);
       if (guards.length > 0) return false;
-      return isRearProtectedAttackTarget(target, selectedItem, state);
+      return isRearProtectedAttackTarget(target, selectedItem, state)
+        || isCommanderPathBlockedAttackTarget(target, selectedItem, state);
     }
 
     function canSelectHand(card, state) {
@@ -10145,7 +10207,7 @@
         const minion = (state.boards && state.boards[hit.data.side] || [])[hit.data.index];
         const rowLabel = hit.data.row === "rear" ? "후열" : "전열";
         const protection = hit.data.protectedRear
-          ? ", 전열이 보호 중이라 저격 또는 돌파 외에는 공격할 수 없음"
+          ? ", 같은 경로의 전열이 보호 중이라 저격 또는 돌파 외에는 공격할 수 없음"
           : "";
         return `${hit.data.side === "player" ? "아군" : "적"} ${rowLabel} ${getCardValue(minion, "name", "장수")}${protection}`;
       }
@@ -10665,6 +10727,47 @@
       const placing = Boolean(side === "player" && selection && selection.kind === "hand");
       const selectedPlacement = placing && selection.placement;
       const rows = side === "ai" ? ["rear", "front"] : ["front", "rear"];
+      const frontOccupiedSlots = new Set(
+        layout
+          .filter((placement) => placement && placement.row === "front")
+          .map((placement) => placement.slot),
+      );
+      const rearOccupiedSlots = new Set(
+        layout
+          .filter((placement) => placement && placement.row === "rear")
+          .map((placement) => placement.slot),
+      );
+      const commander = heroCenter(side);
+      ctx.save();
+      ctx.lineWidth = 2;
+      ctx.setLineDash([7, 7]);
+      for (let slotIndex = 0; slotIndex < FORMATION_SLOT_COUNT; slotIndex += 1) {
+        const front = formationSlotGeometry(side, "front", slotIndex);
+        const rear = formationSlotGeometry(side, "rear", slotIndex);
+        const frontCenter = { x: front.x + front.width / 2, y: front.y + front.height / 2 };
+        const rearCenter = { x: rear.x + rear.width / 2, y: rear.y + rear.height / 2 };
+        ctx.strokeStyle = frontOccupiedSlots.has(slotIndex)
+          ? "rgba(205,92,66,.5)"
+          : "rgba(106,210,178,.32)";
+        ctx.beginPath();
+        ctx.moveTo(frontCenter.x, frontCenter.y);
+        ctx.lineTo(rearCenter.x, rearCenter.y);
+        ctx.stroke();
+        ctx.strokeStyle = rearOccupiedSlots.has(slotIndex)
+          ? "rgba(205,92,66,.5)"
+          : "rgba(106,210,178,.32)";
+        ctx.beginPath();
+        ctx.moveTo(rearCenter.x, rearCenter.y);
+        ctx.quadraticCurveTo(
+          rearCenter.x,
+          (rearCenter.y + commander.y) / 2,
+          commander.x,
+          commander.y,
+        );
+        ctx.stroke();
+      }
+      ctx.setLineDash([]);
+      ctx.restore();
       rows.forEach((row) => {
         const first = formationSlotGeometry(side, row, 0);
         const last = formationSlotGeometry(side, row, FORMATION_SLOT_COUNT - 1);
@@ -10761,7 +10864,7 @@
         ctx.strokeStyle = "rgba(220,255,245,.78)";
         ctx.lineWidth = 1;
         ctx.stroke();
-        drawCenteredText(ctx, "🔒 전열 보호", x + width / 2, y + 12.5, {
+        drawCenteredText(ctx, "🔒 같은 열 보호", x + width / 2, y + 12.5, {
           font: `900 8.5px ${UI_FONT}`,
           color: "#c9f4e8",
           stroke: "rgba(18,12,10,.9)",
@@ -10798,8 +10901,13 @@
       const actualBoard = Array.isArray(interactionBoard) ? interactionBoard : board;
       const visualLayout = formationBoardLayout(board);
       const actualLayout = formationBoardLayout(actualBoard);
-      const enemyFrontPresent = side === "ai"
-        && actualLayout.some((placement) => placement && placement.row === "front");
+      const enemyFrontSlots = side === "ai"
+        ? new Set(
+          actualLayout
+            .filter((placement) => placement && placement.row === "front")
+            .map((placement) => placement.slot),
+        )
+        : new Set();
 
       board.forEach((minion, index) => {
         const key = `${side}:${minion.instanceId || getCardValue(minion, "id", index)}`;
@@ -10828,9 +10936,9 @@
         const actualMinion = actualIndex >= 0 ? actualBoard[actualIndex] : null;
         const actualPlacement = actualIndex >= 0 ? actualLayout[actualIndex] : placement;
         const protectedRear = Boolean(
-          enemyFrontPresent
-          && actualPlacement
-          && actualPlacement.row === "rear",
+          actualPlacement
+          && actualPlacement.row === "rear"
+          && enemyFrontSlots.has(actualPlacement.slot),
         );
         const inspectedCard = isInspectionCard(minion);
         const isSelected = Boolean(selection && selection.kind === "attacker" && selection.index === actualIndex && side === "player") || inspectedCard;
@@ -11820,7 +11928,7 @@
     function drawBoardLabels() {
       ctx.save();
       ctx.globalAlpha = 0.62;
-      drawCenteredText(ctx, "敵  陣 · 전열이 후열을 보호", 301, 340, {
+      drawCenteredText(ctx, "敵  陣 · 같은 열 전열→후열 · 후열 3칸→지휘관 차단", 301, 340, {
         font: `900 12px ${SYSTEM_FONT}`,
         color: "#e8b5a2",
         stroke: "rgba(22,12,10,.8)",
@@ -12182,6 +12290,7 @@
       const keywordTones = {
         돌진: ["#8b3b24", "#ffe0ae"],
         돌파: ["#8b3b24", "#ffe0ae"],
+        저격: ["#713447", "#ffe1ec"],
         수호: ["#315b72", "#dbf1ff"],
         방패: ["#5a4f83", "#eee7ff"],
         출전: ["#6e5522", "#fff0b8"],
@@ -12193,10 +12302,10 @@
         천하무쌍: ["#7f2528", "#ffd4cc"],
       };
       const drawRichAbilityLine = (line, lineX, lineY) => {
-        const segments = String(line).split(/(출전:|유언:|돌진|돌파|수호|방패|의형제|군략|연화|약탈|천하무쌍|무작위)/g).filter(Boolean);
+        const segments = String(line).split(/(출전:|유언:|돌진|돌파|저격|수호|방패|의형제|군략|연화|약탈|천하무쌍|무작위)/g).filter(Boolean);
         let segmentX = lineX;
         segments.forEach((segment) => {
-          const emphasized = /^(출전:|유언:|돌진|돌파|수호|방패|의형제|군략|연화|약탈|천하무쌍)$/.test(segment);
+          const emphasized = /^(출전:|유언:|돌진|돌파|저격|수호|방패|의형제|군략|연화|약탈|천하무쌍)$/.test(segment);
           const random = segment === "무작위";
           ctx.font = `${emphasized || random ? 900 : 700} ${layout.fontSize}px ${UI_FONT}`;
           ctx.fillStyle = random ? "#7b2f78" : emphasized ? "#7a2f20" : "#32261c";
@@ -12539,7 +12648,9 @@
         "formation:place": detail && detail.row === "rear"
           ? "후열 배치 · 방어력 +1"
           : "전열 배치 · 공격력 +1",
-        "formation:block": "전열이 후열을 보호하고 있습니다.",
+        "formation:block": detail && detail.reason === "commander_paths_blocked"
+          ? "후열 세 경로가 지휘관을 보호하고 있습니다."
+          : "같은 경로의 전열이 후열을 보호하고 있습니다.",
         "formation:row-strike": `${detail && detail.row === "rear" ? "후열" : "전열"} 일제 공격이 적중했습니다.`,
         "formation:reinforce": `${detail && detail.row === "rear" ? "후열" : "전열"} 진형을 보강했습니다.`,
         "formation:teamwork": "같은 세로줄의 전열·후열 협공이 발동했습니다.",

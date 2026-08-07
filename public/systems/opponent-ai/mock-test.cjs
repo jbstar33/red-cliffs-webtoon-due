@@ -1251,6 +1251,114 @@ function choose(state, actions, seed) {
   );
 }
 
-console.log("opponent-ai tactical mocks: 128 deterministic scenario groups passed");
+{
+  const state = baseState();
+  state.boards.ai = [minion("path-raider", 4, 5)];
+  state.boards.player = [
+    minion("rear-screen-a", 1, 3, { row: "rear", slot: 0 }),
+    minion("rear-screen-b", 1, 3, { row: "rear", slot: 1 }),
+    minion("rear-screen-c", 1, 3, { row: "rear", slot: 2 }),
+  ];
+  const illegalFace = {
+    type: "attack",
+    side: "ai",
+    attackerIndex: 0,
+    target: { zone: "hero", side: "player" },
+  };
+  const openBoard = {
+    type: "attack",
+    side: "ai",
+    attackerIndex: 0,
+    target: { zone: "board", side: "player", index: 0 },
+  };
+  const selected = choose(
+    state,
+    [illegalFace, openBoard, { type: "endTurn", side: "ai" }],
+    "commander-screen-closed",
+  );
+  assert.notStrictEqual(
+    selected.target?.zone,
+    "hero",
+    "AI must not invent a commander attack through three occupied rear paths",
+  );
+}
+
+{
+  const state = baseState();
+  state.heroes.player.health = 2;
+  state.boards.ai = [minion("path-sniper", 3, 4, { keywords: ["저격"] })];
+  state.boards.player = [
+    minion("rear-screen-a", 1, 3, { row: "rear", slot: 0 }),
+    minion("rear-screen-b", 1, 3, { row: "rear", slot: 1 }),
+    minion("rear-screen-c", 1, 3, { row: "rear", slot: 2 }),
+  ];
+  const face = {
+    type: "attack",
+    side: "ai",
+    attackerIndex: 0,
+    target: { zone: "hero", side: "player" },
+  };
+  const selected = choose(
+    state,
+    [face, { type: "endTurn", side: "ai" }],
+    "commander-screen-sniper",
+  );
+  assert.strictEqual(selected.type, "attack");
+  assert.strictEqual(selected.target.zone, "hero", "저격은 닫힌 지휘관 경로를 무시해야 한다");
+}
+
+{
+  const state = baseState();
+  state.heroes.player.health = 5;
+  state.boards.ai = [
+    minion("path-opener", 3, 5),
+    minion("path-finisher", 5, 5),
+  ];
+  state.boards.player = [
+    minion("rear-gap-target", 0, 3, { row: "rear", slot: 0 }),
+    minion("rear-screen-b", 4, 8, { row: "rear", slot: 1 }),
+    minion("rear-screen-c", 4, 8, { row: "rear", slot: 2 }),
+  ];
+  const actions = [];
+  state.boards.ai.forEach((_attacker, attackerIndex) => {
+    state.boards.player.forEach((_target, targetIndex) => {
+      actions.push({
+        type: "attack",
+        side: "ai",
+        attackerIndex,
+        target: { zone: "board", side: "player", index: targetIndex },
+      });
+    });
+  });
+  actions.push({ type: "endTurn", side: "ai" });
+  const selected = choose(state, actions, "open-path-before-lethal");
+  assert.strictEqual(selected.type, "attack");
+  assert.strictEqual(selected.attackerIndex, 0, "약한 공격수로 경로를 먼저 열어야 한다");
+  assert.strictEqual(selected.target.index, 0, "후열 한 칸을 제거해 지휘관 공격 경로를 열어야 한다");
+}
+
+{
+  const state = baseState();
+  state.boards.ai = [minion("open-column-raider", 4, 5)];
+  state.boards.player = [
+    minion("other-column-front", 1, 5, { row: "front", slot: 0 }),
+    minion("open-column-rear", 5, 3, { row: "rear", slot: 1 }),
+  ];
+  const rearAttack = {
+    type: "attack",
+    side: "ai",
+    attackerIndex: 0,
+    target: { zone: "board", side: "player", index: 1 },
+  };
+  const selected = choose(
+    state,
+    [rearAttack, { type: "endTurn", side: "ai" }],
+    "open-column-rear-target",
+  );
+  assert.strictEqual(selected.type, "attack");
+  assert.strictEqual(selected.target.index, 1, "다른 열의 전열은 열린 후열 경로를 막지 않아야 한다");
+}
+
+console.log("opponent-ai tactical mocks: 132 deterministic scenario groups passed");
 require("./formation-depth-test.cjs");
 require("./commander-power-test.cjs");

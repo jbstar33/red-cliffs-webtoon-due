@@ -133,7 +133,7 @@ assert.equal(
 );
 
 assert.ok(byId.shu_huang_zhong.keywords.includes("저격"));
-assert.ok(byId.shu_huang_zhong.text.includes("전열 너머 후열"));
+assert.match(byId.shu_huang_zhong.text, /전열.*후열.*지휘관/);
 assert.deepEqual(byId.wei_xiahou_yuan.keywords, ["저격"]);
 assert.equal(byId.wei_xiahou_yuan.faction, "위");
 

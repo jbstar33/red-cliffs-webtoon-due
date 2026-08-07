@@ -408,7 +408,9 @@
           "commander:reflect": "유비의 반사가 공격자에게 되돌아갔습니다.",
           "commander:lock": "유목 군주의 봉쇄가 적용되었습니다.",
           "formation:place": "장수가 진형에 배치되었습니다.",
-          "formation:block": "전열이 후열을 보호했습니다.",
+          "formation:block": detail?.reason === "commander_paths_blocked"
+            ? "후열 세 경로가 지휘관을 보호했습니다."
+            : "같은 경로의 전열이 후열을 보호했습니다.",
           "formation:row-strike": "선택한 적 진형을 일제 공격했습니다.",
           "formation:reinforce": "아군 진형이 보강되었습니다.",
           "formation:teamwork": "전열과 후열의 협공이 발동했습니다.",
@@ -2723,13 +2725,26 @@
             .filter(Boolean);
           return frontTargets.concat(rearGuards);
         }
-        const bypassesFront =
-          Array.isArray(attacker?.keywords) &&
-          (attacker.keywords.includes("저격") || attacker.keywords.includes("돌파"));
-        const hasEnemyFront = state.boards[enemy].some((minion) => minion.row === "front");
-        const targets = [{ zone: "hero", side: enemy }];
+        const keywords = Array.isArray(attacker?.keywords) ? attacker.keywords : [];
+        const bypassesLane = keywords.includes("저격") || keywords.includes("돌파");
+        const bypassesCommanderScreen = keywords.includes("저격");
+        const rearSlots = new Set(
+          state.boards[enemy]
+            .filter((minion) => minion.row === "rear")
+            .map((minion) => minion.slot),
+        );
+        const targets = [];
+        if (bypassesCommanderScreen || rearSlots.size < FORMATION_SLOTS) {
+          targets.push({ zone: "hero", side: enemy });
+        }
         state.boards[enemy].forEach((minion, index) => {
-          if (minion.row === "rear" && hasEnemyFront && !bypassesFront) return;
+          const laneBlocked =
+            minion.row === "rear" &&
+            !bypassesLane &&
+            state.boards[enemy].some(
+              (candidate) => candidate.row === "front" && candidate.slot === minion.slot,
+            );
+          if (laneBlocked) return;
           targets.push({ zone: "board", side: enemy, index });
         });
         return targets;
@@ -2795,22 +2810,44 @@
             guardTargets: deepClone(guardTargets),
           };
         }
-        const bypassesFront =
-          Array.isArray(attacker.keywords) &&
-          (attacker.keywords.includes("저격") || attacker.keywords.includes("돌파"));
-        const frontTargets = state.boards[enemy]
-          .map((minion, index) =>
-            minion.row === "front" ? { zone: "board", side: enemy, index } : null,
-          )
-          .filter(Boolean);
-        const blockedByFormation =
-          !frontGuardTargets.length &&
-          !bypassesFront &&
-          frontTargets.length > 0 &&
+        const attackerKeywords = Array.isArray(attacker.keywords) ? attacker.keywords : [];
+        const bypassesLane =
+          attackerKeywords.includes("저격") || attackerKeywords.includes("돌파");
+        const bypassesCommanderScreen = attackerKeywords.includes("저격");
+        const pathBlockers = [];
+        if (
           requestedTarget?.zone === "board" &&
           requestedTarget.side === enemy &&
           requestedTarget.entity.row === "rear" &&
-          !requestedTarget.entity.guard;
+          !requestedTarget.entity.guard &&
+          !bypassesLane
+        ) {
+          state.boards[enemy].forEach((minion, index) => {
+            if (minion.row === "front" && minion.slot === requestedTarget.entity.slot) {
+              pathBlockers.push({ zone: "board", side: enemy, index });
+            }
+          });
+        } else if (
+          requestedTarget?.zone === "hero" &&
+          requestedTarget.side === enemy &&
+          !bypassesCommanderScreen
+        ) {
+          const rearBySlot = new Map();
+          state.boards[enemy].forEach((minion, index) => {
+            if (minion.row === "rear") {
+              rearBySlot.set(minion.slot, { zone: "board", side: enemy, index });
+            }
+          });
+          if (rearBySlot.size === FORMATION_SLOTS) {
+            pathBlockers.push(...Array.from(rearBySlot.values()));
+          }
+        }
+        const formationReason = requestedTarget?.zone === "hero"
+          ? "commander_paths_blocked"
+          : "column_path_blocked";
+        const blockedByFormation =
+          !frontGuardTargets.length &&
+          pathBlockers.length > 0;
         if (blockedByFormation) {
           return {
             ok: false,
@@ -2819,7 +2856,9 @@
             side,
             targetSide: enemy,
             target: deepClone(targetReference),
-            frontTargets: deepClone(frontTargets),
+            frontTargets: deepClone(pathBlockers),
+            pathBlockers: deepClone(pathBlockers),
+            formationReason,
           };
         }
         const targetIsLegal = legal.some(
@@ -2846,10 +2885,11 @@
               target: deepClone(targetReference),
               targetSide: validation.targetSide,
               frontTargets: validation.frontTargets || [],
-              reason: "front_protects_rear",
+              pathBlockers: validation.pathBlockers || validation.frontTargets || [],
+              reason: validation.formationReason || "column_path_blocked",
             });
           }
-          return fail(side, validation.reason, {
+          return fail(side, validation.formationReason || validation.reason, {
             attackerIndex,
             target: targetReference,
             side,
@@ -2862,6 +2902,8 @@
                 : null),
             guardTargets: validation.guardTargets || [],
             frontTargets: validation.frontTargets || [],
+            pathBlockers: validation.pathBlockers || validation.frontTargets || [],
+            formationReason: validation.formationReason || null,
           });
         }
         const { attacker, target } = validation;

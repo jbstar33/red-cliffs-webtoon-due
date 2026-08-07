@@ -2282,7 +2282,7 @@ function testFormationPlacementProtectionAndCapacity() {
   const blocked = game.attack("player", 0, { zone: "board", side: "ai", index: 1 });
   assert.equal(blocked.ok, false);
   assert.equal(blocked.state.log.at(-2).type, "formation:block");
-  assert.equal(blocked.state.log.at(-2).data.reason, "front_protects_rear");
+  assert.equal(blocked.state.log.at(-2).data.reason, "column_path_blocked");
 
   const breach = createGame({
     definitions,
@@ -2309,6 +2309,97 @@ function testFormationPlacementProtectionAndCapacity() {
           action.target.index === 1,
       ),
     "돌파는 전열 뒤의 후열을 직접 공격할 수 있어야 한다",
+  );
+
+  const openLane = createGame({
+    definitions,
+    tokens,
+    playerDeck: deckOf("charger"),
+    aiDeck: deckOf("charger"),
+    seed: 7021,
+  });
+  playFirst(openLane, "playCard", (action) => action.placement?.row === "front");
+  openLane.endTurn("player");
+  playFirst(
+    openLane,
+    "playCard",
+    (action) => action.placement?.row === "front" && action.placement.slot === 0,
+  );
+  openLane.endTurn("ai");
+  openLane.endTurn("player");
+  playFirst(
+    openLane,
+    "playCard",
+    (action) => action.placement?.row === "rear" && action.placement.slot === 1,
+  );
+  openLane.endTurn("ai");
+  const openLaneRearIndex = openLane
+    .getState()
+    .boards.ai.findIndex((minion) => minion.row === "rear" && minion.slot === 1);
+  assert.ok(openLaneRearIndex >= 0);
+  assert.ok(
+    openLane
+      .getLegalActions("player")
+      .some(
+        (action) =>
+          action.type === "attack" &&
+          action.target.zone === "board" &&
+          action.target.index === openLaneRearIndex,
+      ),
+    "다른 세로줄의 전열은 열린 후열 경로를 막지 않아야 한다",
+  );
+
+  function commanderScreenGame(attackerId, seed) {
+    const screened = createGame({
+      definitions,
+      tokens,
+      playerDeck: deckOf(attackerId),
+      aiDeck: deckOf("charger"),
+      seed,
+    });
+    playFirst(screened, "playCard", (action) => action.placement?.row === "front");
+    for (let slot = 0; slot < 3; slot += 1) {
+      screened.endTurn("player");
+      playFirst(
+        screened,
+        "playCard",
+        (action) => action.placement?.row === "rear" && action.placement.slot === slot,
+      );
+      screened.endTurn("ai");
+      if (slot === 1) {
+        assert.ok(
+          screened
+            .getLegalActions("player")
+            .some((action) => action.type === "attack" && action.target.zone === "hero"),
+          "후열 경로가 하나라도 비어 있으면 지휘관을 공격할 수 있어야 한다",
+        );
+      }
+    }
+    return screened;
+  }
+
+  const screenedCommander = commanderScreenGame("shield-charger", 7022);
+  assert.ok(
+    !screenedCommander
+      .getLegalActions("player")
+      .some((action) => action.type === "attack" && action.target.zone === "hero"),
+    "후열 세 칸이 모두 차면 돌파 장수도 지휘관을 공격할 수 없어야 한다",
+  );
+  const blockedCommander = screenedCommander.attack("player", 0, {
+    zone: "hero",
+    side: "ai",
+  });
+  assert.equal(blockedCommander.ok, false);
+  assert.equal(blockedCommander.state.log.at(-2).type, "formation:block");
+  assert.equal(blockedCommander.state.log.at(-2).data.reason, "commander_paths_blocked");
+  assert.equal(blockedCommander.state.log.at(-2).data.pathBlockers.length, 3);
+
+  const sniperCommander = commanderScreenGame("sniper", 7023);
+  assert.ok(
+    sniperCommander
+      .getLegalActions("player")
+      .some((action) => action.type === "attack" && action.target.zone === "hero"),
+    "저격 장수는 후열 세 경로가 닫혀도 지휘관을 직접 공격할 수 있어야 한다",
   );
 
   const capacity = createGame({

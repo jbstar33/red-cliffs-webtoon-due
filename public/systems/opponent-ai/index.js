@@ -200,9 +200,13 @@
   }
 
   function hasSnipe(entity) {
+    return Boolean(entity && keywordList(entity).includes("저격"));
+  }
+
+  function hasLaneBypass(entity) {
     return Boolean(
       entity &&
-        (keywordList(entity).includes("저격") || keywordList(entity).includes("돌파")),
+        (hasSnipe(entity) || keywordList(entity).includes("돌파")),
     );
   }
 
@@ -323,6 +327,28 @@
     return boardOf(state, defender).filter(hasGuard);
   }
 
+  function rearScreenClosed(state, defender) {
+    return new Set(
+      boardOf(state, defender)
+        .filter((minion) => rowOf(minion) === "rear")
+        .map((minion) => Number(minion.slot)),
+    ).size >= 3;
+  }
+
+  function canReachCommander(state, attacker, defender) {
+    if (enemyGuards(state, defender).length) return false;
+    return !rearScreenClosed(state, defender) || hasSnipe(attacker);
+  }
+
+  function readyCommanderDamage(state, side) {
+    const defender = side === AI_SIDE ? PLAYER_SIDE : AI_SIDE;
+    return boardOf(state, side).reduce(
+      (sum, minion) =>
+        sum + (isReady(minion) && canReachCommander(state, minion, defender) ? attackOf(minion) : 0),
+      0,
+    );
+  }
+
   function guardsAllowTarget(state, defender, targetReference, target) {
     const guards = enemyGuards(state, defender);
     const frontGuards = guards.filter((guard) => rowOf(guard) !== "rear");
@@ -336,13 +362,6 @@
     if (targetReference.zone !== "board") return false;
     if (rowOf(target) === "front") return true;
     return rowOf(target) === "rear" && hasGuard(target);
-  }
-
-  function readyDamage(state, side) {
-    return boardOf(state, side).reduce(
-      (sum, minion) => sum + (isReady(minion) ? attackOf(minion) : 0),
-      0,
-    );
   }
 
   function playableCardActions(legalActions, handIndex) {
@@ -365,9 +384,11 @@
   function immediateCardBurst(card, state, side) {
     if (!card) return 0;
     const enemy = side === AI_SIDE ? PLAYER_SIDE : AI_SIDE;
-    const guards = enemyGuards(state, enemy);
     const enemyBoard = boardOf(state, enemy);
-    let burst = keywordList(card).includes("돌진") && !guards.length ? attackOf(card) : 0;
+    let burst =
+      keywordList(card).includes("돌진") && canReachCommander(state, card, enemy)
+        ? attackOf(card)
+        : 0;
     abilitiesOf(card).forEach((ability) => {
       if (!ability || ability.trigger !== "onPlay") return;
       const amount = Math.max(0, finite(ability.amount, 0));
@@ -375,8 +396,10 @@
         burst += amount;
       } else if (ability.op === "damage_random_enemy" && !enemyBoard.length) {
         burst += amount;
-      } else if (ability.op === "ready_random_friendly" && !guards.length) {
-        const exhausted = oldExhaustedAllies(state, side);
+      } else if (ability.op === "ready_random_friendly") {
+        const exhausted = oldExhaustedAllies(state, side).filter(
+          (minion) => canReachCommander(state, minion, enemy),
+        );
         if (exhausted.length) burst += Math.max.apply(null, exhausted.map(attackOf));
       }
     });
@@ -416,8 +439,7 @@
   }
 
   function guaranteedTurnBurst(state, side) {
-    const enemy = side === AI_SIDE ? PLAYER_SIDE : AI_SIDE;
-    const boardBurst = enemyGuards(state, enemy).length ? 0 : readyDamage(state, side);
+    const boardBurst = readyCommanderDamage(state, side);
     return boardBurst + handBurstPotential(state, side);
   }
 
@@ -1047,14 +1069,19 @@
     board.forEach((minion) => {
       value += minionValue(minion);
     });
-    const hasFront = board.some((minion) => rowOf(minion) === "front");
+    const frontSlots = new Set(
+      board
+        .filter((minion) => rowOf(minion) === "front")
+        .map((minion) => Number(minion.slot)),
+    );
     board.forEach((minion) => {
       const row = rowOf(minion);
       if (hasGuard(minion)) value += row === "front" ? 1.5 : row === "rear" ? -1.4 : 0;
-      if (row === "rear" && hasFront) {
+      if (row === "rear" && frontSlots.has(Number(minion.slot))) {
         value += isStrategist(minion) ? 1.4 : healthOf(minion) <= 3 ? 0.85 : 0.3;
       }
     });
+    if (rearScreenClosed(state, side)) value += 4.8;
     value += Math.max(0, finite(hero.emptyFortCharges, 0)) * 5.4;
     if (side === AI_SIDE) {
       hand.forEach((card) => {
@@ -1113,15 +1140,15 @@
     return null;
   }
 
-  function commanderPressure(state) {
+  function commanderPressure(state, attacker) {
     const aiHero = (state.heroes && state.heroes.ai) || {};
     const enemyHero = (state.heroes && state.heroes.player) || {};
     const aiHealth = effectiveHealth(aiHero);
     const enemyHealth = effectiveHealth(enemyHero);
-    const ready = readyDamage(state, AI_SIDE);
+    const ready = readyCommanderDamage(state, AI_SIDE);
     const friendlyThreat = futureBoardDamage(state, AI_SIDE);
     const enemyThreat = futureBoardDamage(state, PLAYER_SIDE);
-    const blocked = enemyGuards(state, PLAYER_SIDE).length > 0;
+    const blocked = !canReachCommander(state, attacker, PLAYER_SIDE);
     const lethal = !blocked && ready >= enemyHealth;
     const emergency = enemyThreat >= Math.max(1, aiHealth - 5);
     const safeRace = aiHealth >= enemyThreat + 5;
@@ -1392,8 +1419,10 @@
       !guards.length &&
       action.target.zone === "board" &&
       rowOf(target) === "rear" &&
-      boardOf(state, PLAYER_SIDE).some((minion) => rowOf(minion) === "front") &&
-      !hasSnipe(attacker)
+      boardOf(state, PLAYER_SIDE).some(
+        (minion) => rowOf(minion) === "front" && Number(minion.slot) === Number(target.slot),
+      ) &&
+      !hasLaneBypass(attacker)
     ) {
       return -WIN_SCORE * 0.6;
     }
@@ -1410,7 +1439,7 @@
       ? Math.min(healthOf(attacker), selfDamage) * 1.3 +
         (healthOf(attacker) <= selfDamage ? 14 + minionValue(attacker) * 1.1 : 0)
       : 0;
-    const pressure = commanderPressure(state);
+    const pressure = commanderPressure(state, attacker);
     const heroAttackAvailable = Array.isArray(legalActions) && legalActions.some(
       (candidate) =>
         candidate &&
@@ -1424,7 +1453,7 @@
       const health = effectiveHealth(target);
       if (attack >= health) return WIN_SCORE * 0.72;
       const enemyBoard = boardOf(state, PLAYER_SIDE);
-      const totalReadyDamage = readyDamage(state, AI_SIDE);
+      const totalReadyDamage = readyCommanderDamage(state, AI_SIDE);
       let value = attack * 1.65 - recoilValue;
       if (!enemyBoard.length) value += 2.2;
       if (totalReadyDamage >= health) value += 80 + attack * 0.5;
@@ -1475,6 +1504,23 @@
       if (remainingDamage >= effectiveHealth(enemyHero)) value += 70;
       else if (remainingDamage && effectiveHealth(enemyHero) <= 12) value += remainingDamage * 0.8;
     }
+    if (killsTarget && rowOf(target) === "rear" && rearScreenClosed(state, PLAYER_SIDE)) {
+      const remainingDamage = board.reduce((sum, minion, index) => {
+        if (index === Number(action.attackerIndex) || !isReady(minion)) return sum;
+        return sum + attackOf(minion);
+      }, 0);
+      value += 6.5 + Math.min(10, remainingDamage * 0.85);
+      if (remainingDamage >= effectiveHealth(state.heroes && state.heroes.player)) value += 55;
+    }
+    if (
+      killsTarget &&
+      rowOf(target) === "front" &&
+      boardOf(state, PLAYER_SIDE).some(
+        (minion) => rowOf(minion) === "rear" && Number(minion.slot) === Number(target.slot),
+      )
+    ) {
+      value += 4.2;
+    }
     if (FINISHER_IDS.has(attackerId) && !killsTarget && !removesShield) value -= 6.5;
     if (attackerId === "shu_zhao_yun" && hasShield(attacker) && attackerSurvives) value += 1.8;
     if (attackerId === "qun_lu_bu" && isSecondAttack && (killsTarget || hasShield(target))) {
@@ -1505,8 +1551,7 @@
             value += target.side === PLAYER_SIDE ? amount * 1.1 : -amount * 2;
             if (
               target.side === PLAYER_SIDE &&
-              !enemyGuards(state, PLAYER_SIDE).length &&
-              readyDamage(state, AI_SIDE) + amount >= effectiveHealth(entity)
+              readyCommanderDamage(state, AI_SIDE) + amount >= effectiveHealth(entity)
             ) {
               value += 68;
             }
@@ -1671,6 +1716,18 @@
     const frontCount = board.filter((minion) => rowOf(minion) === "front").length;
     const rearCount = board.filter((minion) => rowOf(minion) === "rear").length;
     if (row === "rear" && frontCount > 0) value += 1.3;
+    if (row === "rear" && rearCount === 2) {
+      const hero = state.heroes && state.heroes.ai;
+      value += effectiveHealth(hero) <= 12 ? 9 : 5.5;
+    }
+    if (
+      row === "front" &&
+      board.some(
+        (minion) => rowOf(minion) === "rear" && Number(minion.slot) === slot,
+      )
+    ) {
+      value += 3.2;
+    }
     if (row === "rear" && frontCount === 0 && !requiredRows.includes("rear")) value -= 1.2;
     if (row === "front" && frontCount === 0 && rearCount > 0) value += 2.2;
     if (slot === 1 && (hasGuard(card) || isStrategist(card))) value += 0.35;
@@ -1938,10 +1995,10 @@
     }
 
     if (FINISHER_IDS.has(id)) {
-      const guards = enemyGuards(state, PLAYER_SIDE);
       const chargeDamage = keywordList(card).includes("돌진") ? Math.max(0, finite(card.attack, 0)) : 0;
-      if (!guards.length && chargeDamage >= effectiveHealth(enemyHero)) value += WIN_SCORE * 0.3;
-      else if (!guards.length && effectiveHealth(enemyHero) <= 14) value += chargeDamage * 0.72;
+      const reachesCommander = canReachCommander(state, card, PLAYER_SIDE);
+      if (reachesCommander && chargeDamage >= effectiveHealth(enemyHero)) value += WIN_SCORE * 0.3;
+      else if (reachesCommander && effectiveHealth(enemyHero) <= 14) value += chargeDamage * 0.72;
       if (id === "wu_zhou_yu" && !enemyBoard.length && effectiveHealth(enemyHero) > 10) {
         value -= 3;
       }
@@ -2019,7 +2076,7 @@
     });
     if (
       keywordList(card).includes("돌진") &&
-      enemyGuards(state, PLAYER_SIDE).length === 0
+      canReachCommander(state, card, PLAYER_SIDE)
     ) {
       direct += attackOf(card);
     }
@@ -2028,7 +2085,7 @@
       action.target.zone === "hero" &&
       action.target.side === PLAYER_SIDE
     ) {
-      direct += readyDamage(state, AI_SIDE);
+      direct += readyCommanderDamage(state, AI_SIDE);
     }
     return direct >= enemyHealth;
   }
@@ -2086,7 +2143,7 @@
     if (!action) return false;
     if (action.type === "attack" && action.target && action.target.zone === "hero") {
       const attacker = boardOf(state, AI_SIDE)[Number(action.attackerIndex)];
-      const pressure = commanderPressure(state);
+      const pressure = commanderPressure(state, attacker);
       return Boolean(
         attacker &&
         (pressure.lethal || (pressure.press && attackOf(attacker) >= 2)),
@@ -2162,10 +2219,18 @@
     }
     if (!guardsAllowTarget(state, PLAYER_SIDE, action.target, target)) return false;
     if (
+      action.target.zone === "hero" &&
+      !canReachCommander(state, attacker, PLAYER_SIDE)
+    ) {
+      return false;
+    }
+    if (
       action.target.zone === "board" &&
       rowOf(target) === "rear" &&
-      boardOf(state, PLAYER_SIDE).some((minion) => rowOf(minion) === "front") &&
-      !hasSnipe(attacker)
+      boardOf(state, PLAYER_SIDE).some(
+        (minion) => rowOf(minion) === "front" && Number(minion.slot) === Number(target.slot),
+      ) &&
+      !hasLaneBypass(attacker)
     ) {
       return false;
     }

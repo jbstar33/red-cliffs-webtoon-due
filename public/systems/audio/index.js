@@ -2955,7 +2955,7 @@
         case "action:invalid":
           if (
             data.blockedByFormation ||
-            /formation|front_protects_rear/.test(String(data.reason || ""))
+            /formation|front_protects_rear|column_path_blocked|commander_paths_blocked/.test(String(data.reason || ""))
           ) {
             return playTactical("formation-block", data);
           }

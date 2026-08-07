@@ -1390,14 +1390,17 @@
     }
 
     function triggerFormationBlock(detail) {
-      var target = detail.target ||
-        Array.isArray(detail.frontTargets) && detail.frontTargets[0] || null;
+      var commanderScreen = detail && detail.reason === "commander_paths_blocked";
+      var blockers = detail && (detail.pathBlockers || detail.frontTargets) || [];
+      var target = commanderScreen
+        ? detail.target
+        : Array.isArray(blockers) && blockers[0] || detail.target || null;
       addTacticalCue("formation-block", 0.66, detail, {
         target: target,
         color: STEEL,
         secondaryColor: FORMATION_FRONT,
-        label: "전열 보호",
-        signature: "formation:front-wall",
+        label: commanderScreen ? "지휘관 경로 봉쇄" : "같은 열 보호",
+        signature: commanderScreen ? "formation:commander-screen" : "formation:column-wall",
         layer: LAYER_FEEDBACK,
         cueAt: 0.12
       });

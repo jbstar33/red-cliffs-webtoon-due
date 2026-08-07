@@ -433,7 +433,7 @@ test("fits production formation, linkage, status, keyword, and ability copy in t
   const stressedLayout = hooks.calculateInspectorTextLayout(context, stressedLuBu, 252, 403, stressedDetails);
   assert.ok(stressedLayout.totalHeight <= 403, `stressed Lu Bu overflow ${stressedLayout.totalHeight}`);
   assert.equal(stressedLayout.strategyRows.filter((row) => row.section === "status").length, 1);
-  assert.match(stressedLayout.strategyRows.find((row) => row.section === "status").text, /후열 보호.*화상.*호통.*반계.*봉쇄.*공성계.*반동/);
+  assert.match(stressedLayout.strategyRows.find((row) => row.section === "status").text, /경로 보호.*화상.*호통.*반계.*봉쇄.*공성계.*반동/);
 });
 
 test("production multi-term inspector ARIA uses one sentence boundary and preserves each meaning once", () => {
@@ -593,7 +593,7 @@ test("derives trigger definitions and consistently presents on-death as 유언",
   assert.match(source, /entries\.push\(\{ keyword: "출전", kind: "trigger" \}\)/);
   assert.match(source, /entries\.push\(\{ keyword: "유언", kind: "trigger" \}\)/);
   assert.match(source, /replace\(\/죽음\\s\*:\/g, "유언:"\)/);
-  assert.match(source, /\(출전:\|유언:\|돌진\|돌파\|수호\|방패\|의형제\|군략\|연화\|약탈\|천하무쌍/);
+  assert.match(source, /\(출전:\|유언:\|돌진\|돌파\|저격\|수호\|방패\|의형제\|군략\|연화\|약탈\|천하무쌍/);
 });
 
 test("pinned inspector blocks click-through and closing clears armed selection", () => {
@@ -862,8 +862,11 @@ test("leaves spectacle drawing to fx while synchronizing board presentation snap
 
 test("dispatches guard and formation-blocked attacks for authoritative feedback", () => {
   assert.match(source, /function isGuardBlockedAttackTarget\(target, selectedItem, state\)/);
-  assert.match(source, /if \(guards\.length === 0\) return false/);
+  assert.match(source, /const frontGuards = enemyBoard\.filter/);
+  assert.match(source, /const rearGuards = enemyBoard\.filter/);
   assert.match(source, /function isFormationBlockedAttackTarget\(target, selectedItem, state\)/);
+  assert.match(source, /function isCommanderPathBlockedAttackTarget\(target, selectedItem, state\)/);
+  assert.match(source, /occupiedRearSlots\.size === FORMATION_SLOT_COUNT/);
   assert.match(source, /cardHasKeyword\(attacker, "저격"\) && !cardHasKeyword\(attacker, "돌파"\)/);
   assert.match(
     source,
@@ -945,10 +948,11 @@ test("shows formation protection and readable strategy and runtime status detail
   );
   assert.deepEqual(
     Array.from(hooks.inspectorRuntimeStatusRows(card), (row) => row.label),
-    ["후열 보호", "화상", "반계"],
+    ["경로 보호", "화상", "반계"],
   );
-  assert.match(source, /🔒 전열 보호/);
-  assert.match(source, /전열이 보호 중 — 저격·돌파 외에는 공격 불가/);
+  assert.match(source, /🔒 같은 열 보호/);
+  assert.match(source, /같은 열 전열이 보호 중 — 저격·돌파 외에는 공격 불가/);
+  assert.match(source, /후열 3칸→지휘관 차단/);
   assert.match(source, /배치 · 연계 · 상태/);
   assert.doesNotMatch(source, /markers\.slice\(0, 2\)/);
 });
@@ -1403,7 +1407,7 @@ test("distinguishes active and spent shields and marks random rules for fast sca
   assert.match(source, /const randomRule = hasRandomRule\(card\)/);
   assert.match(source, /spentShield \? "방패 소모" : name/);
   assert.match(source, /이번 전투에서 방패가 이미 소모되었습니다/);
-  assert.match(source, /split\(\/\(출전:\|유언:\|돌진\|돌파\|수호\|방패\|의형제\|군략\|연화\|약탈\|천하무쌍\|무작위\)\//);
+  assert.match(source, /split\(\/\(출전:\|유언:\|돌진\|돌파\|저격\|수호\|방패\|의형제\|군략\|연화\|약탈\|천하무쌍\|무작위\)\//);
   assert.match(mockSource, /Object\.assign\(card\(3\), \{ shield: false \}\)/);
   assert.match(mockSource, /scenario"\) === "invalid"/);
   assert.match(mockSource, /scenario"\) === "defeat"/);
